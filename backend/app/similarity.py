@@ -220,6 +220,8 @@ _ACTION_CLASSES = {
     "delete": {"delete", "remove", "erase", "cancel", "purge", "void", "revoke",
                "archive", "close"},
     "send":   {"send", "notify", "email", "push", "dispatch", "publish", "forward"},
+    "refund": {"refund", "reimburse", "chargeback"},
+    "charge": {"capture", "charge", "authorize", "debit", "bill", "invoice_charge"},
 }
 _INFLECT = lambda w: {w, w + "s", w + "es", w + "d", w + "ed", w + "ing"}
 
@@ -232,6 +234,54 @@ def action_class(text: str) -> Optional[str]:
             if any(t in _INFLECT(w) for w in words):
                 return cls
     return None
+
+
+def serialize_tool(payload: dict) -> str:
+    """Ditto-style record serialization: the WHOLE tool (name, title, description,
+    parameters with types + descriptions) as one annotated text, so the matcher
+    judges the pair with full cross-field context instead of hand-tuned weights."""
+    parts = [f"tool: {payload.get('name', '')}"]
+    title = payload.get("title", "")
+    if title and title != payload.get("name"):
+        parts.append(f"title: {title}")
+    parts.append(f"does: {payload.get('description', '')}")
+    for ov in (payload.get("audiences") or {}).values():
+        d = (ov.get("overrides") or {}).get("description")
+        if d:
+            parts.append(f"also described as: {d}")
+    props = (payload.get("input_schema") or {}).get("properties", {})
+    required = set((payload.get("input_schema") or {}).get("required", []))
+    for pname, pschema in props.items():
+        bits = f"parameter {pname} ({pschema.get('type', 'any')}"
+        bits += ", required)" if pname in required else ")"
+        if pschema.get("description"):
+            bits += f": {pschema['description']}"
+        parts.append(bits)
+    return " ; ".join(parts)
+
+
+def tool_equivalence(rr: "Reranker", a_payload: dict, b_payload: dict) -> Optional[float]:
+    """Whole-tool semantic match with deterministic guards:
+    - thin-description cap (a tool must SAY what it does to claim similarity)
+    - action-class cap on descriptions (create != fetch, whatever the topic)
+    - symmetric cross-encoding over the full serialized records
+    - near-identical floor on the serialized records"""
+    a_desc, b_desc = desc_text_of(a_payload), desc_text_of(b_payload)
+    a_ser, b_ser = serialize_tool(a_payload), serialize_tool(b_payload)
+    if _informative_count(a_desc) < 2 or _informative_count(b_desc) < 2:
+        fwd = rr.score_pairs(a_ser, [b_ser])
+        return min(0.35, fwd[0]) if fwd else None
+    fwd = rr.score_pairs(a_ser, [b_ser])
+    bwd = rr.score_pairs(b_ser, [a_ser])
+    if not fwd or not bwd:
+        return None
+    score = (fwd[0] + bwd[0]) / 2
+    if _jaccard(a_ser, b_ser) >= 0.8:
+        score = max(score, 0.9)
+    ca, cb = action_class(a_desc), action_class(b_desc)
+    if ca and cb and ca != cb:
+        score = min(score, 0.45)
+    return round(score, 4)
 
 
 def equivalence_score(rr: "Reranker", a: str, b: str) -> Optional[float]:
@@ -261,28 +311,30 @@ def equivalence_score(rr: "Reranker", a: str, b: str) -> Optional[float]:
     return round(score, 4)
 
 
-def apply_rerank(query_text: str, ranked: List[dict], text_of: Dict[str, str]) -> List[dict]:
-    """Rescore ranked matches with symmetric cross-encoder equivalence; falls back
+def apply_rerank(query_payload: dict, ranked: List[dict],
+                 payload_of: Dict[str, dict]) -> List[dict]:
+    """Rescore ranked matches with whole-record symmetric equivalence; falls back
     to cosine. method: 'reranked' | 'thin-description' | 'cosine'."""
     rr = reranker()
     if isinstance(rr, NoopReranker):
         for m in ranked:
             m["method"] = "cosine"
         return ranked
-    thin_query = _informative_count(query_text) < 2
+    thin_query = _informative_count(desc_text_of(query_payload)) < 2
     for m in ranked:
-        s = equivalence_score(rr, query_text, text_of.get(m["id"], ""))
+        other = payload_of.get(m["id"]) or {}
+        s = tool_equivalence(rr, query_payload, other)
         if s is None:
             m["method"] = "cosine"
             continue
         m["cosine"] = m["score"]
         m["score"] = s
         m["method"] = "thin-description" if (thin_query or
-            _informative_count(text_of.get(m["id"], "")) < 2) else "reranked"
+            _informative_count(desc_text_of(other)) < 2) else "reranked"
     return sorted(ranked, key=lambda m: -m["score"])
 
 
-def rerank_pairs(pairs: List[dict], text_of: Dict[str, str], cap: int = 100) -> List[dict]:
+def rerank_pairs(pairs: List[dict], payload_of: Dict[str, dict], cap: int = 100) -> List[dict]:
     """Duplicates report: rescore the top pairs pairwise. Pairs beyond `cap`
     keep their cosine score (logged via method field)."""
     rr = reranker()
@@ -291,7 +343,8 @@ def rerank_pairs(pairs: List[dict], text_of: Dict[str, str], cap: int = 100) -> 
             p["method"] = "cosine"
         return pairs
     for p in pairs[:cap]:
-        s = equivalence_score(rr, text_of.get(p["a"]["id"], ""), text_of.get(p["b"]["id"], ""))
+        s = tool_equivalence(rr, payload_of.get(p["a"]["id"]) or {},
+                             payload_of.get(p["b"]["id"]) or {})
         if s is not None:
             p["cosine"] = p["score"]
             p["score"] = s

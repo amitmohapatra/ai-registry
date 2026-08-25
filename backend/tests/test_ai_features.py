@@ -187,3 +187,36 @@ async def test_prompt_override_from_config(client, monkeypatch):
     await client.post("/v1/products/p1/entities/ai/generate", headers=su,
                       json={"type": "tool", "payload": {"name": "x", "description": "y"}})
     assert seen["system"].startswith("CUSTOM PROMPT FROM BIFROST STORE")
+
+
+async def test_duplicates_auto_verify_with_llm(client, monkeypatch):
+    """verify=true asks the LLM about the ambiguous band; a 'duplicate' verdict can
+    rescue a pair just under the threshold; missing gateway degrades gracefully."""
+    su = await login(client)
+    await make_product(client, su, "p1")
+    mk = lambda n, d: {"name": n, "description": d,
+                       "input_schema": {"type": "object", "properties": {}}}
+    await client.post("/v1/products/p1/entities", headers=su,
+                      json={"type": "tool", "payload": mk("get_invoice", "Fetch an invoice by customer id")})
+    await client.post("/v1/products/p1/entities", headers=su,
+                      json={"type": "tool", "payload": mk("fetch_invoice", "Fetch an invoice by customer id")})
+    # no gateway configured: verify=true must not crash, behaves like normal report
+    r = await client.get("/v1/products/p1/entities/reports/duplicates",
+                         params={"verify": "true", "threshold": 0.8}, headers=su)
+    assert r.status_code == 200 and len(r.json()["pairs"]) == 1
+    # with a gateway: LLM verdict lands on ambiguous pairs
+    await client.put("/v1/products/p1/ai-config", headers=su,
+                     json={"base_url": "http://b/v1", "api_key": "vk", "model": "m"})
+
+    async def fake_complete(self, system, user, max_tokens=1024):
+        assert "Tool A" in user and "Tool B" in user
+        return '{"verdict": "duplicate", "reason": "Both fetch invoices by customer id."}'
+
+    from app.llm import LLMClient
+    monkeypatch.setattr(LLMClient, "complete", fake_complete)
+    # threshold above the pair's score -> pair sits in the band; verdict rescues it
+    r = await client.get("/v1/products/p1/entities/reports/duplicates",
+                         params={"verify": "true", "threshold": 0.95}, headers=su)
+    pairs = r.json()["pairs"]
+    assert pairs and pairs[0]["verdict"] == "duplicate"
+    assert "invoices" in pairs[0]["verdict_reason"]
