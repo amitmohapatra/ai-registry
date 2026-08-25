@@ -1,0 +1,59 @@
+# AI Registry stack (control plane only — product MCP servers use the SDK
+# and run wherever the products run; they are NOT part of this stack).
+#
+#   docker compose up -d          -> UI on :5173, API on :8000
+#
+# Change the three secrets below before any non-local deployment.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: registry
+      POSTGRES_PASSWORD: registry
+      POSTGRES_DB: registry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U registry"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      REGISTRY_DATABASE_URL: postgresql+asyncpg://registry:registry@postgres:5432/registry
+      REGISTRY_REDIS_URL: redis://redis:6379/0          # L2 cache + default event bus
+      REGISTRY_JWT_SECRET: change-me-jwt-secret
+      REGISTRY_SECRET_KEY: change-me-32-byte-secret-key!!
+      REGISTRY_BOOTSTRAP_ADMIN_EMAIL: admin@registry.dev
+      REGISTRY_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # optional installation-wide AI gateway (Bifrost); per-product config overrides
+      # REGISTRY_BIFROST_URL: http://bifrost:8080/v1
+      # REGISTRY_BIFROST_KEY: vk-...
+    ports:
+      - "8000:8000"
+
+  ui:
+    build: ./ui
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:

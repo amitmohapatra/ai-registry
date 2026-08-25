@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://registry.yourco.com/contracts/event.v1.json",
+  "title": "Registry change event (contract v1)",
+  "description": "Published on the product's channel (Redis pub/sub or SSE). SDK rule: seq <= current -> ignore; seq == current+1 -> apply delta; otherwise -> full manifest re-fetch.",
+  "type": "object",
+  "required": ["contract", "seq", "product_key", "type"],
+  "properties": {
+    "contract": { "const": "v1" },
+    "seq": { "type": "integer", "minimum": 1 },
+    "product_key": { "type": "string" },
+    "type": { "enum": ["entity.created", "entity.updated", "entity.deleted", "manifest.reload"] },
+    "entity": {
+      "type": "object",
+      "description": "Present for entity.* events; carries the already-resolved views",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["tool", "agent"] },
+        "name": { "type": "string" },
+        "version": { "type": "integer" },
+        "views": { "type": "object" }
+      }
+    }
+  }
+}

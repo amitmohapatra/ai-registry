@@ -1,0 +1,25 @@
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+
+# --- runtime artifacts (never commit) ---
+*.db
+*.snapshot.json
+.env
+.env.*
+nohup.out
+*.log
+
+# --- node / frontend ---
+node_modules/
+ui/dist/
+
+# --- os / editor ---
+.DS_Store
+.idea/
+.vscode/

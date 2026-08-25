@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://registry.yourco.com/contracts/manifest.v1.json",
+  "title": "Product manifest (contract v1)",
+  "description": "What GET /v1/products/{key}/manifest returns and what SDK snapshots store. Views are pre-resolved per audience by the registry; SDKs never merge overlays themselves.",
+  "type": "object",
+  "required": ["contract", "product_key", "seq", "audiences", "default_audience", "entities"],
+  "properties": {
+    "contract": { "const": "v1" },
+    "product_key": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 0, "description": "Monotonic per-product sequence; equals the seq of the last event applied" },
+    "audiences": { "type": "array", "items": { "type": "string" } },
+    "default_audience": { "type": "string", "description": "Served to unauthenticated/unentitled callers" },
+    "channel": {
+      "type": "object",
+      "properties": {
+        "redis_url": { "type": "string", "description": "Empty => subscribe via the registry's SSE /events endpoint" },
+        "name": { "type": "string", "description": "Pub/sub channel, e.g. registry:billing" }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "name", "version", "views"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "enum": ["tool", "agent"] },
+          "name": { "type": "string" },
+          "version": { "type": "integer" },
+          "views": {
+            "type": "object",
+            "description": "audience key -> resolved view",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "spec": {
+                  "type": "object",
+                  "description": "Resolved tool/agent spec: name, title, description, input_schema, annotations, auth.required_scopes, card (agents)"
+                },
+                "pins": {
+                  "type": "object",
+                  "description": "Hidden-parameter values the SDK injects server-side before invoking the handler; they always win over caller arguments"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
