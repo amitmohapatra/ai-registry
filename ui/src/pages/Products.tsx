@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, Product, User } from '../api'
+import { api, downloadExport, Product, User } from '../api'
 
 export default function Products({ me, onCreated }: { me: User | null; onCreated?: () => void }) {
   const [products, setProducts] = useState<Product[]>([])
@@ -18,7 +18,11 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   return (
     <>
       <div className="topbar"><div><h1>Products</h1>
-        <span className="muted">Each product owns its MCP tools, audiences and pub/sub channel.</span></div></div>
+        <span className="muted">Each product owns its MCP tools, audiences and pub/sub channel.</span></div>
+        {me?.is_super_admin && products.length > 0 && (
+          <button className="small" title="Download every product's tools as one Excel file"
+            onClick={() => downloadExport(products[0].key, 'all')}>⬇ Export all (Excel)</button>
+        )}</div>
       <div className="card">
         <table>
           <thead><tr><th>Product</th><th>Key</th><th>Your role</th><th>Seq</th></tr></thead>

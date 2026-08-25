@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api, ApiKey, Audience, Entity, Member, Product, User } from '../api'
+import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
 import { ConfirmButton } from '../components'
 
@@ -62,6 +62,8 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
             onChange={e => { setQ(e.target.value); setPage(0) }} />
           {type === 'tool' && <button className="small" onClick={() => setShowOverlaps(v => !v)}>
             {showOverlaps ? 'Hide overlaps' : 'Check overlaps'}</button>}
+          {type === 'tool' && <button className="small" title="Download this product's tools as Excel"
+            onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
           {canEdit && type === 'tool' && <Link to={`/p/${productKey}/tools/new`}><button className="primary small">+ New tool</button></Link>}
         </div>
       </div>

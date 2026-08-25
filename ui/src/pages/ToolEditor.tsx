@@ -153,8 +153,6 @@ export default function ToolEditor() {
           <span className="muted">Edits publish to every running MCP server the moment you save.</span></div>
         <div className="row">
           <button onClick={() => nav(`/p/${productKey}`)}>Back</button>
-          {canEdit && <button onClick={() => { setImportOpen(v => !v); setImportErr('') }}>
-            {importOpen ? 'Cancel import' : 'Import JSON'}</button>}
           {canEdit
             ? <button className="primary" onClick={save} disabled={errors.length > 0 || !payload.name}>
                 {isNew ? 'Create tool' : 'Save & publish'}</button>
@@ -182,18 +180,19 @@ export default function ToolEditor() {
           <div key={i}><span className="path">{e.path || 'payload'}</span> — {e.message}</div>
         ))}</div>
       )}
+      <div className="tabs">
+        <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}>Base</button>
+        {audiences.map(a => (
+          <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
+            {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
+        ))}
+      </div>
       <div className="grid2">
         <div>
-          <div className="tabs">
-            <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}>Base</button>
-            {audiences.map(a => (
-              <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
-                {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
-            ))}
-          </div>
           {tab === 'base' ? (
             <BaseForm payload={payload} params={params} set={set} setSchema={setSchema} isNew={isNew}
-              matches={matches} onDifferentiate={canEdit && aiOn ? aiDifferentiate : undefined} />
+              matches={matches} onDifferentiate={canEdit && aiOn ? aiDifferentiate : undefined}
+              onImportToggle={canEdit ? () => { setImportOpen(v => !v); setImportErr('') } : undefined} />
           ) : (
             <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
               setOverlay={setOverlay} errFor={errFor} />
@@ -293,7 +292,7 @@ const MCP_HINTS = [
   { key: 'openWorldHint', label: 'Open world', help: 'Interacts with external systems / the internet' },
 ]
 
-function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferentiate }: any) {
+function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferentiate, onImportToggle }: any) {
   const th = matches?.threshold ?? 0.5
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
@@ -320,10 +319,13 @@ function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferent
       )}
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
         <label style={{ margin: 0 }}>Parameters</label>
-        <button className="small" onClick={() => {
-          if (!jsonMode) setJsonText(JSON.stringify(payload.input_schema, null, 2))
-          setJsonErr(''); setJsonMode(!jsonMode)
-        }}>{jsonMode ? 'Back to form' : 'Edit schema as JSON (nested/complex)'}</button>
+        <div className="row">
+          {onImportToggle && <button className="small" onClick={onImportToggle}>Import JSON</button>}
+          <button className="small" onClick={() => {
+            if (!jsonMode) setJsonText(JSON.stringify(payload.input_schema, null, 2))
+            setJsonErr(''); setJsonMode(!jsonMode)
+          }}>{jsonMode ? 'Back to form' : 'Edit schema as JSON'}</button>
+        </div>
       </div>
       {jsonMode ? (
         <>

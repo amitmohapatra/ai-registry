@@ -35,6 +35,18 @@ async function req<T>(method: string, path: string, body?: any): Promise<T> {
   return r.status === 204 ? (undefined as T) : r.json()
 }
 
+export async function downloadExport(pk: string, scope: 'product' | 'all') {
+  const r = await fetch(BASE + `/v1/products/${pk}/entities/reports/export?scope=${scope}`,
+    { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+  if (!r.ok) throw new ApiError(r.status, 'Export failed')
+  const blob = await r.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = scope === 'all' ? 'tools-all-products.xlsx' : `tools-${pk}.xlsx`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export const api = {
   login: (email: string, password: string) => req<{ access_token: string; user: User }>('POST', '/v1/auth/login', { email, password }),
   me: () => req<User>('GET', '/v1/auth/me'),

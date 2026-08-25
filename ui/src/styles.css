@@ -168,3 +168,10 @@ input.col-name { padding: 6px 10px; }
 .col-req { width: 36px; text-align: center; }
 
 @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } .main { padding: 20px; } }
+
+/* ---- layout integrity: no horizontal scroll, aligned columns ---- */
+.grid2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.card { min-width: 0; }
+.preview { max-width: 100%; }
+td { word-break: break-word; }
+.main { overflow-x: hidden; }

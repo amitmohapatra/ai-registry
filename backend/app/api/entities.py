@@ -59,6 +59,57 @@ async def list_entities(response: Response, ctx: tuple = Depends(require_member)
     return (await db.execute(stmt.order_by(Entity.name).limit(limit).offset(offset))).scalars().all()
 
 
+@router.get("/reports/export")
+async def export_entities(ctx: tuple = Depends(require_member),
+                          db: AsyncSession = Depends(get_session),
+                          scope: str = Query(default="product", pattern="^(product|all)$")):
+    """Excel export of tools/agents. scope=product: any member of the product.
+    scope=all: super admin only (whole company catalog)."""
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from ..models import Product as P
+    product, user, role = ctx
+    if scope == "all" and role != "super_admin":
+        raise HTTPException(403, "Super admin only for the all-products export")
+    stmt = select(Entity, P.key).join(P, Entity.product_id == P.id).where(
+        Entity.is_deleted == False)  # noqa: E712
+    if scope == "product":
+        stmt = stmt.where(Entity.product_id == product.id)
+    rows = (await db.execute(stmt.order_by(P.key, Entity.name))).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Tools"
+    headers = ["Product", "Type", "Name", "Title", "Description", "Version",
+               "Audiences (enabled)", "Parameters", "Required scopes", "Updated"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for e, pkey in rows:
+        p = e.payload
+        props = (p.get("input_schema") or {}).get("properties", {})
+        required = set((p.get("input_schema") or {}).get("required", []))
+        params = ", ".join(f"{n}:{s.get('type', 'any')}{'*' if n in required else ''}"
+                           for n, s in props.items())
+        audiences = ", ".join(a for a, v in (e.resolved or {}).items() if v and v.get("enabled"))
+        scopes = ", ".join((p.get("auth") or {}).get("required_scopes", []))
+        ws.append([pkey, e.type, e.name, p.get("title", ""), p.get("description", ""),
+                   e.version, audiences, params, scopes,
+                   e.updated_at.strftime("%Y-%m-%d %H:%M") if e.updated_at else ""])
+    widths = [14, 8, 26, 22, 60, 9, 22, 40, 22, 17]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "tools-all-products.xlsx" if scope == "all" else f"tools-{product.key}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @router.get("/{entity_id}", response_model=EntityOut)
 async def get_one(entity_id: str, ctx: tuple = Depends(require_member),
                   db: AsyncSession = Depends(get_session)):

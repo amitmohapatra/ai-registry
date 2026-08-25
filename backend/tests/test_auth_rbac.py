@@ -142,3 +142,26 @@ async def test_entity_pagination_and_search(client):
     assert len(r3.json()) == 10 and r3.headers["x-total-count"] == "10"
     r4 = await client.get("/v1/products/big/entities", params={"q": "tool_07"}, headers=su)
     assert [e["name"] for e in r4.json()] == ["tool_07"]
+
+
+async def test_excel_export_rbac(client):
+    su = await login(client)
+    await make_product(client, su, "billing")
+    await client.post("/v1/products/billing/entities",
+                      json={"type": "tool", "payload": TOOL}, headers=su)
+    # product export: any member
+    r = await client.get("/v1/products/billing/entities/reports/export", headers=su)
+    assert r.status_code == 200 and r.content[:2] == b"PK"       # xlsx = zip magic
+    assert "tools-billing.xlsx" in r.headers["content-disposition"]
+    # all-products export: super admin only
+    r = await client.get("/v1/products/billing/entities/reports/export",
+                         params={"scope": "all"}, headers=su)
+    assert r.status_code == 200 and "all-products" in r.headers["content-disposition"]
+    await make_user(client, su, "alice@co.com")
+    await client.put("/v1/products/billing/members",
+                     json={"email": "alice@co.com", "role": "user"}, headers=su)
+    alice = await login(client, "alice@co.com", "secret1")
+    assert (await client.get("/v1/products/billing/entities/reports/export",
+                             headers=alice)).status_code == 200          # own product: ok
+    assert (await client.get("/v1/products/billing/entities/reports/export",
+                             params={"scope": "all"}, headers=alice)).status_code == 403
