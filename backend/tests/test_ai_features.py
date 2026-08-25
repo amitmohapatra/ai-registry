@@ -1,5 +1,4 @@
-"""Similar-preview, explain breakdown, AI config gating, and Bifrost-backed
-generation/explanation (LLM mocked — no network in tests)."""
+"""Similar-preview, explain breakdown, similarity settings, and score sanity."""
 import copy
 
 import pytest
@@ -57,75 +56,6 @@ async def test_explain_pair_endpoint(client):
     assert "parameters" in fields                        # shared-params rule fired
 
 
-async def test_ai_config_rbac_and_status(client):
-    su = await login(client)
-    await seed(client, su)
-    # not configured -> status false, generate blocked with a clear message
-    st = (await client.get("/v1/products/billing/ai-config/status", headers=su)).json()
-    assert st == {"configured": False, "model": None}
-    r = await client.post("/v1/products/billing/entities/ai/generate",
-                          json={"type": "tool", "payload": TOOL}, headers=su)
-    assert r.status_code == 400 and "Bifrost" in r.json()["detail"]
-    # super admin sets config; stored encrypted; member can see status but not the key
-    await client.put("/v1/products/billing/ai-config", headers=su,
-                     json={"base_url": "http://localhost:8080/v1", "api_key": "vk-secret",
-                           "model": "anthropic/claude-sonnet-4-5"})
-    got = (await client.get("/v1/products/billing/ai-config", headers=su)).json()
-    assert got["api_key"] == "vk-secret"
-    from app.db import session_factory
-    from app.models import AiConfig
-    from sqlalchemy import select
-    async with session_factory()() as db:
-        row = (await db.execute(select(AiConfig))).scalars().first()
-        assert "vk-secret" not in row.config_enc         # encrypted at rest
-    st = (await client.get("/v1/products/billing/ai-config/status", headers=su)).json()
-    assert st["configured"] is True
-    # product admin cannot read the config (key stays super-admin-only)
-    from .conftest import make_user
-    await make_user(client, su, "alice@co.com")
-    await client.put("/v1/products/billing/members",
-                     json={"email": "alice@co.com", "role": "admin"}, headers=su)
-    alice = await login(client, "alice@co.com", "secret1")
-    assert (await client.get("/v1/products/billing/ai-config", headers=alice)).status_code == 403
-    assert (await client.get("/v1/products/billing/ai-config/status",
-                             headers=alice)).json()["configured"] is True
-
-
-async def test_ai_generate_and_explain_with_mocked_llm(client, monkeypatch):
-    su = await login(client)
-    e = await seed(client, su)
-    await client.put("/v1/products/billing/ai-config", headers=su,
-                     json={"base_url": "http://bifrost.local/v1", "api_key": "vk", "model": "m"})
-    calls = {}
-
-    async def fake_complete(self, system, user, max_tokens=1024):
-        calls["system"] = system; calls["user"] = user
-        if "STRICT JSON" in system:
-            return ('Here you go:\n```json\n{"description": "Fetch a billing invoice by its '
-                    'unique ID from the billing ledger.", "title": "Get billing invoice", '
-                    '"param_descriptions": {"invoice_id": "Unique billing invoice ID"}}\n```')
-        return "These are near-duplicates; keep billing/get_invoice as canonical."
-
-    from app.llm import LLMClient
-    monkeypatch.setattr(LLMClient, "complete", fake_complete)
-    # generate: suggestion parsed from fenced JSON, similar tools fed to the prompt
-    r = await client.post("/v1/products/billing/entities/ai/generate",
-                          json={"type": "tool", "payload": {
-                              "name": "get_invoice_details",
-                              "description": "Fetch an invoice by its ID.",
-                              "input_schema": {"type": "object", "properties": {
-                                  "invoice_id": {"type": "string"}}}}}, headers=su)
-    body = r.json()
-    assert body["suggestion"]["description"].startswith("Fetch a billing invoice")
-    assert body["suggestion"]["param_descriptions"]["invoice_id"]
-    assert "fetch_invoice" in calls["user"]              # similar tools included in prompt
-    # ai explain
-    other_id = (await client.get("/v1/products/shipping/entities", headers=su)).json()[0]["id"]
-    r = await client.post(f"/v1/products/billing/entities/{e['id']}/explain/{other_id}/ai",
-                          headers=su)
-    assert "canonical" in r.json()["analysis"]
-
-
 async def test_scores_never_negative_and_no_mirrored_pairs(client):
     su = await login(client)
     await make_product(client, su, "p1")
@@ -168,55 +98,3 @@ async def test_product_threshold_setting(client):
     # bounds enforced
     assert (await client.put("/v1/products/p1/settings",
                              json={"similarity_threshold": 1.5}, headers=su)).status_code == 422
-
-
-async def test_prompt_override_from_config(client, monkeypatch):
-    su = await login(client)
-    await make_product(client, su, "p1")
-    await client.put("/v1/products/p1/ai-config", headers=su,
-                     json={"base_url": "http://b/v1", "api_key": "vk", "model": "m",
-                           "generate_prompt": "CUSTOM PROMPT FROM BIFROST STORE. STRICT JSON."})
-    seen = {}
-
-    async def fake_complete(self, system, user, max_tokens=1024):
-        seen["system"] = system
-        return '{"description": "d", "title": "t", "param_descriptions": {}}'
-
-    from app.llm import LLMClient
-    monkeypatch.setattr(LLMClient, "complete", fake_complete)
-    await client.post("/v1/products/p1/entities/ai/generate", headers=su,
-                      json={"type": "tool", "payload": {"name": "x", "description": "y"}})
-    assert seen["system"].startswith("CUSTOM PROMPT FROM BIFROST STORE")
-
-
-async def test_duplicates_auto_verify_with_llm(client, monkeypatch):
-    """verify=true asks the LLM about the ambiguous band; a 'duplicate' verdict can
-    rescue a pair just under the threshold; missing gateway degrades gracefully."""
-    su = await login(client)
-    await make_product(client, su, "p1")
-    mk = lambda n, d: {"name": n, "description": d,
-                       "input_schema": {"type": "object", "properties": {}}}
-    await client.post("/v1/products/p1/entities", headers=su,
-                      json={"type": "tool", "payload": mk("get_invoice", "Fetch an invoice by customer id")})
-    await client.post("/v1/products/p1/entities", headers=su,
-                      json={"type": "tool", "payload": mk("fetch_invoice", "Fetch an invoice by customer id")})
-    # no gateway configured: verify=true must not crash, behaves like normal report
-    r = await client.get("/v1/products/p1/entities/reports/duplicates",
-                         params={"verify": "true", "threshold": 0.8}, headers=su)
-    assert r.status_code == 200 and len(r.json()["pairs"]) == 1
-    # with a gateway: LLM verdict lands on ambiguous pairs
-    await client.put("/v1/products/p1/ai-config", headers=su,
-                     json={"base_url": "http://b/v1", "api_key": "vk", "model": "m"})
-
-    async def fake_complete(self, system, user, max_tokens=1024):
-        assert "Tool A" in user and "Tool B" in user
-        return '{"verdict": "duplicate", "reason": "Both fetch invoices by customer id."}'
-
-    from app.llm import LLMClient
-    monkeypatch.setattr(LLMClient, "complete", fake_complete)
-    # threshold above the pair's score -> pair sits in the band; verdict rescues it
-    r = await client.get("/v1/products/p1/entities/reports/duplicates",
-                         params={"verify": "true", "threshold": 0.95}, headers=su)
-    pairs = r.json()["pairs"]
-    assert pairs and pairs[0]["verdict"] == "duplicate"
-    assert "invoices" in pairs[0]["verdict_reason"]

@@ -175,3 +175,8 @@ input.col-name { padding: 6px 10px; }
 .preview { max-width: 100%; }
 td { word-break: break-word; }
 .main { overflow-x: hidden; }
+
+/* ---- toolbar: title left, actions right, no awkward wrap ---- */
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.toolbar h2 { margin: 0 auto 0 0; white-space: nowrap; }
+.toolbar .searchbox { width: 220px; }

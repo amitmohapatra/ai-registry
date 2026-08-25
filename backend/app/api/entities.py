@@ -220,15 +220,10 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
     return ranked
 
 
-VERIFY_SYSTEM = """You judge whether two MCP tools are duplicates (same capability) or
-distinct. Answer with STRICT JSON: {"verdict": "duplicate" | "distinct", "reason": "<one sentence>"}."""
-
-
 @router.get("/reports/duplicates")
 async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = Depends(get_session),
                      scope: str = Query(default="all", pattern="^(product|all)$"),
-                     threshold: float = Query(default=0.0),
-                     verify: bool = Query(default=False)):
+                     threshold: float = Query(default=0.0)):
     product, _, _ = ctx
     from .ai import product_threshold
     cands = await _candidates(db, product.id if scope == "product" else "")
@@ -236,26 +231,5 @@ async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = De
     # cosine casts a wide net (lower floor), the cross-encoder gives the final say
     pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
     pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
-    pairs = [p for p in pairs if p["score"] >= th * 0.8] if verify else             [p for p in pairs if p["score"] >= th]
-    if verify:
-        # LLM verdict on the ambiguous band (research: zero-shot pairwise works well);
-        # graceful no-op when no AI gateway is configured
-        from .. import llm as llm_mod
-        from ..similarity import serialize_tool
-        client = await llm_mod.llm_for_product(db, product)
-        if client is not None:
-            payload_of = {c["id"]: c["payload"] for c in cands}
-            band = [p for p in pairs if p["score"] >= 0.2 and
-                    (p["score"] < th or p["score"] <= 0.9)][:10]
-            for p in band:
-                try:
-                    raw = await client.complete(VERIFY_SYSTEM,
-                        f"Tool A: {serialize_tool(payload_of.get(p['a']['id'], {}))}\n"
-                        f"Tool B: {serialize_tool(payload_of.get(p['b']['id'], {}))}")
-                    v = llm_mod.extract_json(raw)
-                    p["verdict"] = v.get("verdict")
-                    p["verdict_reason"] = v.get("reason", "")
-                except Exception:
-                    pass                                  # verification is best-effort
-        pairs = [p for p in pairs if p["score"] >= th or p.get("verdict") == "duplicate"]
+    pairs = [p for p in pairs if p["score"] >= th]
     return {"threshold": th, "pairs": pairs}

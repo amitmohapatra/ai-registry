@@ -55,17 +55,15 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
   return (
     <>
     <div className="card" ref={topRef}>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>{type === 'tool' ? 'Tools' : 'Agents'}</h2>
-        <div className="row">
-          <input className="searchbox" placeholder={`Search ${type}s…`} value={q}
-            onChange={e => { setQ(e.target.value); setPage(0) }} />
-          {type === 'tool' && <button className="small" onClick={() => setShowOverlaps(v => !v)}>
-            {showOverlaps ? 'Hide overlaps' : 'Check overlaps'}</button>}
-          {type === 'tool' && <button className="small" title="Download this product's tools as Excel"
-            onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
-          {canEdit && type === 'tool' && <Link to={`/p/${productKey}/tools/new`}><button className="primary small">+ New tool</button></Link>}
-        </div>
+      <div className="toolbar">
+        <h2>{type === 'tool' ? 'Tools' : 'Agents'}</h2>
+        <input className="searchbox" placeholder={`Search ${type}s…`} value={q}
+          onChange={e => { setQ(e.target.value); setPage(0) }} />
+        {type === 'tool' && <button className="small" onClick={() => setShowOverlaps(v => !v)}>
+          {showOverlaps ? 'Hide overlaps' : 'Check overlaps'}</button>}
+        {type === 'tool' && <button className="small" title="Download this product's tools as Excel"
+          onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
+        {canEdit && type === 'tool' && <Link to={`/p/${productKey}/tools/new`}><button className="primary small">+ New tool</button></Link>}
       </div>
       <table>
         <thead><tr><th>Name</th><th>Description</th><th>Version</th><th>Audiences</th><th /></tr></thead>
@@ -102,15 +100,12 @@ function Duplicates({ productKey }: { productKey: string }) {
   const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
   const [open, setOpen] = useState<string>('')
   const [explain, setExplain] = useState<any>(null)
-  const [aiText, setAiText] = useState('')
-  const [aiOn, setAiOn] = useState(false)
   useEffect(() => { api.duplicates(productKey, scope, threshold || undefined).then(setReport) }, [productKey, scope, threshold])
-  useEffect(() => { api.aiStatus(productKey).then(s => setAiOn(s.configured)).catch(() => {}) }, [productKey])
   const pct = (s: number) => `${Math.round(s * 100)}%`
   const toggle = async (p: any) => {
     const key = p.a.id + p.b.id
-    if (open === key) { setOpen(''); setExplain(null); setAiText(''); return }
-    setOpen(key); setExplain(null); setAiText('')
+    if (open === key) { setOpen(''); setExplain(null); return }
+    setOpen(key); setExplain(null)
     setExplain(await api.explainPair(productKey, p.a.id, p.b.id).catch(() => null))
   }
   return (
@@ -158,14 +153,6 @@ function Duplicates({ productKey }: { productKey: string }) {
                 {explain.recommendations.map((r: any, j: number) => (
                   <div key={j} className={r.severity === 'high' ? 'err' : 'ok-banner'}
                     style={{ margin: '6px 0' }}>{r.message}</div>))}
-                {aiOn && !aiText && <button className="small" onClick={async (e) => {
-                  e.stopPropagation()
-                  setAiText('…')
-                  const r = await api.aiExplain(productKey, p.a.id, p.b.id).catch(() => null)
-                  setAiText(r?.analysis ?? 'AI analysis failed')
-                }}>✦ Analyze with AI</button>}
-                {aiText && aiText !== '…' && <div className="ok-banner" style={{ marginTop: 6 }}>✦ {aiText}</div>}
-                {aiText === '…' && <span className="muted">✦ Thinking…</span>}
               </div>}
             </td></tr>)
           return rows
@@ -295,14 +282,6 @@ function Settings({ productKey, me, canEdit }: { productKey: string; me: User | 
       )}
       {me?.is_super_admin && (
         <div className="card">
-          <h2>AI gateway — Bifrost (super admin)</h2>
-          <p className="muted">OpenAI-compatible gateway URL + virtual key. Powers "Improve with AI"
-            and "Analyze with AI". Leave empty to disable AI features for this product.</p>
-          <AiConfigForm productKey={productKey} />
-        </div>
-      )}
-      {me?.is_super_admin && (
-        <div className="card">
           <h2>Pub/sub channel (super admin)</h2>
           <p className="muted">This product's own Redis. Leave empty to use the registry's built-in SSE stream.</p>
           <label>Redis URL</label>
@@ -385,31 +364,6 @@ function SimilaritySettings({ productKey, canEdit }: { productKey: string; canEd
         }}>Save</button>}
       </div>
     </div>
-  )
-}
-
-function AiConfigForm({ productKey }: { productKey: string }) {
-  const [cfg, setCfg] = useState({ base_url: '', api_key: '', model: '', generate_prompt: '', explain_prompt: '' })
-  useEffect(() => { api.aiConfigGet(productKey).then(c => setCfg({ generate_prompt: '', explain_prompt: '', ...c })).catch(() => {}) }, [productKey])
-  return (
-    <>
-      <label>Bifrost base URL</label>
-      <input placeholder="http://localhost:8080/v1" value={cfg.base_url}
-        onChange={e => setCfg({ ...cfg, base_url: e.target.value })} />
-      <label>Virtual key</label>
-      <input type="password" placeholder="vk-…" value={cfg.api_key}
-        onChange={e => setCfg({ ...cfg, api_key: e.target.value })} />
-      <label>Model</label>
-      <input placeholder="anthropic/claude-sonnet-4-5" value={cfg.model}
-        onChange={e => setCfg({ ...cfg, model: e.target.value })} />
-      <p className="muted" style={{ marginTop: 8 }}>Prompts are authored and versioned in Bifrost
-        (your prompt store) — this card only connects the gateway. Advanced: per-product prompt
-        overrides remain available via the API (<code>PUT /ai-config</code>).</p>
-      <div className="row" style={{ marginTop: 12 }}>
-        <button className="primary" onClick={async () => {
-          await api.aiConfigSet(productKey, cfg); toast('AI gateway saved') }}>Save AI config</button>
-      </div>
-    </>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
@@ -6,12 +6,20 @@ import SchemaTree from '../SchemaTree'
 
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
+type Matches = { matches: Similar[]; top_explain: any; threshold?: number }
 
 const emptyPayload = () => ({
   name: '', description: '',
-  input_schema: { type: 'object', properties: {}, required: [] } as any,
+  input_schema: { type: 'object', properties: {} } as any,
   audiences: {} as Record<string, Overlay>,
 })
+
+const MCP_HINTS = [
+  { key: 'readOnlyHint', label: 'Read-only', help: 'Does not modify any state' },
+  { key: 'destructiveHint', label: 'Destructive', help: 'May delete or irreversibly change data' },
+  { key: 'idempotentHint', label: 'Idempotent', help: 'Safe to call repeatedly with the same args' },
+  { key: 'openWorldHint', label: 'Open world', help: 'Interacts with external systems / the internet' },
+]
 
 export default function ToolEditor() {
   const { productKey = '', entityId } = useParams()
@@ -26,19 +34,12 @@ export default function ToolEditor() {
   const [saved, setSaved] = useState('')
   const [version, setVersion] = useState(0)
   const [canEdit, setCanEdit] = useState(true)
-  const [aiOn, setAiOn] = useState(false)
-  const [aiBusy, setAiBusy] = useState(false)
-  const [aiSuggestion, setAiSuggestion] = useState<any>(null)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importText, setImportText] = useState('')
-  const [importErr, setImportErr] = useState('')
-  const [matches, setMatches] = useState<{ matches: Similar[]; top_explain: any; threshold?: number } | null>(null)
+  const [matches, setMatches] = useState<Matches | null>(null)
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
 
   useEffect(() => {
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
-    api.aiStatus(productKey).then(s => setAiOn(s.configured)).catch(() => {})
     api.audiences(productKey).then(a => setAudiences(a.map(x => x.key)))
     if (entityId) {
       api.entity(productKey, entityId).then(e => { setPayload(e.payload); setVersion(e.version) })
@@ -46,7 +47,7 @@ export default function ToolEditor() {
     }
   }, [productKey, entityId])
 
-  // live preview: the SAME validate+resolve code path as save (dry-run endpoint)
+  // live preview — the same validate+resolve pipeline as Save
   useEffect(() => {
     window.clearTimeout(debounce.current)
     if (!payload.name) return
@@ -54,10 +55,11 @@ export default function ToolEditor() {
       try {
         const r = await api.dryRun(productKey, { type: 'tool', payload })
         setErrors(r.errors); setPreview(r.valid ? r.resolved : null)
-      } catch { /* network hiccup: keep last preview */ }
+      } catch { /* keep last preview */ }
     }, 350)
   }, [payload, productKey])
 
+  // live similarity — draft-based, works before and after saving
   useEffect(() => {
     window.clearTimeout(matchDebounce.current)
     if (!payload.name && !payload.description) return
@@ -86,7 +88,8 @@ export default function ToolEditor() {
         nav(`/p/${productKey}/tools/${e.id}`)
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
-        setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`); toast(`Saved v${e.version} — live everywhere`)
+        setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
+        toast(`Saved v${e.version} — live everywhere`)
         api.versions(productKey, entityId!).then(setVersions)
       }
     } catch (ex) {
@@ -96,55 +99,6 @@ export default function ToolEditor() {
   }
 
   const errFor = (needle: string) => errors.filter(e => e.path.includes(needle))
-
-  const doImport = () => {
-    setImportErr('')
-    let parsed: any
-    try { parsed = JSON.parse(importText) } catch { setImportErr('Not valid JSON.'); return }
-    // accept: registry entity export {payload}, full payload, MCP tool {inputSchema}, or bare schema
-    let p = parsed.payload ?? parsed
-    if (p.inputSchema && !p.input_schema) p = { ...p, input_schema: p.inputSchema }
-    if (!p.name && (p.type === 'object' || p.properties)) {
-      setPayload((cur: any) => ({ ...cur, input_schema: p }))
-      setImportOpen(false); setImportText(''); toast('Schema imported — review the tree below')
-      return
-    }
-    if (!p.name) { setImportErr('Unrecognized shape: expected a tool payload, an MCP tool definition, or a JSON Schema.'); return }
-    setPayload({
-      name: p.name, title: p.title ?? '', description: p.description ?? '',
-      input_schema: p.input_schema ?? { type: 'object', properties: {} },
-      annotations: p.annotations ?? {}, auth: p.auth ?? {},
-      audiences: p.audiences ?? {},
-    })
-    setImportOpen(false); setImportText(''); toast(`Imported "${p.name}" — everything is editable below`)
-  }
-
-  const aiGenerate = async (instruction = '') => {
-    setAiBusy(true); setAiSuggestion(null)
-    try {
-      const r = await api.aiGenerate(productKey, { type: 'tool',
-        payload: { ...payload, _entity_id: entityId }, instruction })
-      setAiSuggestion(r.suggestion)
-    } catch (ex: any) { toast(String(ex?.detail ?? 'AI request failed')) }
-    finally { setAiBusy(false) }
-  }
-  const aiDifferentiate = () => {
-    toast('Asking AI to differentiate the description…')
-    aiGenerate('The description overlaps heavily with the similar tools listed. Rewrite it to '
-      + 'clearly differentiate this tool: state its distinct scope, data source, and when to '
-      + 'prefer it over the similar ones. Keep it 1-3 sentences.')
-  }
-  const applySuggestion = () => {
-    const s = aiSuggestion
-    setPayload((p: any) => {
-      const schema = structuredClone(p.input_schema ?? { type: 'object', properties: {} })
-      for (const [name, d] of Object.entries(s.param_descriptions ?? {}))
-        if (schema.properties?.[name]) schema.properties[name].description = d
-      return { ...p, description: s.description || p.description,
-               title: s.title || p.title, input_schema: schema }
-    })
-    setAiSuggestion(null); toast('AI suggestion applied — review and save')
-  }
 
   return (
     <>
@@ -159,21 +113,6 @@ export default function ToolEditor() {
             : <span className="pill user">read-only</span>}
         </div>
       </div>
-      {importOpen && (
-        <div className="card" style={{ borderColor: '#c7d7fe' }}>
-          <h2>Import JSON</h2>
-          <p className="muted">Paste any of: a full tool payload, an MCP tool definition
-            (<code>name / description / inputSchema</code>), a registry export, or a bare JSON Schema
-            (replaces parameters only). The form and tree populate from it — nothing saves until you review and hit Save.</p>
-          <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 180 }}
-            placeholder='{"name": "create_order", "description": "…", "input_schema": { … }}'
-            value={importText} onChange={e => setImportText(e.target.value)} autoFocus />
-          {importErr && <div className="err">{importErr}</div>}
-          <div className="row" style={{ marginTop: 10 }}>
-            <button className="primary" disabled={!importText.trim()} onClick={doImport}>Import</button>
-          </div>
-        </div>
-      )}
       {saved && <div className="ok-banner">{saved}</div>}
       {errors.length > 0 && (
         <div className="err">{errors.map((e, i) => (
@@ -190,12 +129,11 @@ export default function ToolEditor() {
       <div className="grid2">
         <div>
           {tab === 'base' ? (
-            <BaseForm payload={payload} params={params} set={set} setSchema={setSchema} isNew={isNew}
-              matches={matches} onDifferentiate={canEdit && aiOn ? aiDifferentiate : undefined}
-              onImportToggle={canEdit ? () => { setImportOpen(v => !v); setImportErr('') } : undefined} />
+            <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
+              matches={matches} setPayload={setPayload} />
           ) : (
             <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
-              setOverlay={setOverlay} errFor={errFor} />
+              basePayload={payload} setOverlay={setOverlay} errFor={errFor} />
           )}
           {!isNew && (
             <div className="card">
@@ -210,60 +148,15 @@ export default function ToolEditor() {
                         const e = await api.rollback(productKey, entityId!, v.version)
                         setPayload(e.payload); setVersion(e.version)
                         api.versions(productKey, entityId!).then(setVersions)
-                        setSaved(`v${v.version} is now active (published as v${e.version}) — SDKs updated live.`); toast(`v${v.version} is active again`)
+                        setSaved(`v${v.version} is now active (published as v${e.version}) — SDKs updated live.`)
+                        toast(`v${v.version} is active again`)
                       }}>Make active</button>}</td></tr>
               ))}</tbody></table>
             </div>
           )}
         </div>
         <div>
-          {matches && matches.matches.filter(m => m.score >= 0.3).length > 0 && (
-            <div className="card">
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <h2 style={{ margin: 0 }}>Similar tools <span className="muted">(live, across all products)</span></h2>
-                {canEdit && aiOn && <button className="small" disabled={aiBusy} onClick={() => aiGenerate()}>
-                  {aiBusy ? 'Thinking…' : '✦ Improve with AI'}</button>}
-              </div>
-              <table><tbody>{matches.matches.filter(m => m.score >= 0.3).slice(0, 3).map(m => (
-                <tr key={m.id}><td><b className="score">{m.product_key}/{m.name}</b></td>
-                  <td><b className="score">{Math.round(m.score * 100)}%</b></td>
-                  <td>{m.score >= (matches.threshold ?? 0.5)
-                    ? <span className="pill off">above threshold</span>
-                    : m.score >= (matches.threshold ?? 0.5) * 0.7
-                      ? <span className="pill aud">related</span> : null}</td></tr>
-              ))}</tbody></table>
-              {matches.top_explain && (
-                <div style={{ marginTop: 10 }}>
-                  {matches.top_explain.shared.terms.length > 0 && (
-                    <p className="muted" style={{ margin: '6px 0' }}>Common terms with
-                      <b> {matches.top_explain.other.product_key}/{matches.top_explain.other.name}</b>: {' '}
-                      {matches.top_explain.shared.terms.slice(0, 8).map((t: string) =>
-                        <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}
-                    </p>)}
-                  {matches.top_explain.shared.parameters.length > 0 && (
-                    <p className="muted" style={{ margin: '6px 0' }}>Common parameters: {' '}
-                      {matches.top_explain.shared.parameters.map((t: string) =>
-                        <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>)}
-                  {matches.top_explain.recommendations.map((r: any, i: number) => (
-                    <div key={i} className={r.severity === 'high' ? 'err' : 'ok-banner'}
-                      style={{ margin: '6px 0' }}>{r.message}</div>))}
-                </div>)}
-            </div>
-          )}
-          {aiSuggestion && (
-            <div className="card" style={{ borderColor: '#c7d7fe' }}>
-              <h2>✦ AI suggestion</h2>
-              <label>Description</label>
-              <div className="ok-banner" style={{ margin: '4px 0' }}>{aiSuggestion.description}</div>
-              {Object.entries(aiSuggestion.param_descriptions ?? {}).map(([k, v]: [string, any]) => (
-                <p key={k} className="muted" style={{ margin: '4px 0' }}>
-                  <b className="score">{k}</b>: {v}</p>))}
-              <div className="row" style={{ marginTop: 10 }}>
-                <button className="primary small" onClick={applySuggestion}>Apply to form</button>
-                <button className="small" onClick={() => setAiSuggestion(null)}>Dismiss</button>
-              </div>
-            </div>
-          )}
+          <SimilarPanel productKey={productKey} entityId={entityId} matches={matches} />
           <div className="card">
             <h2>Live preview — what each audience sees</h2>
             <p className="muted">Rendered by the same validate+resolve pipeline as Save, so it cannot lie.</p>
@@ -277,28 +170,74 @@ export default function ToolEditor() {
   )
 }
 
-const TYPE_DEFAULTS: Record<string, any> = {
-  string: { type: 'string' }, integer: { type: 'integer' }, number: { type: 'number' },
-  boolean: { type: 'boolean' },
-  array: { type: 'array', items: { type: 'string' } },
-  object: { type: 'object', properties: {} },
+/* ---------- similar tools: expandable rows, same experience as Check overlaps ---------- */
+function SimilarPanel({ productKey, entityId, matches }:
+  { productKey: string; entityId?: string; matches: Matches | null }) {
+  const [open, setOpen] = useState('')
+  const [detail, setDetail] = useState<Record<string, any>>({})
+  const visible = (matches?.matches ?? []).filter(m => m.score >= 0.3)
+  if (!matches || visible.length === 0) return null
+  const th = matches.threshold ?? 0.5
+
+  const toggle = async (m: Similar) => {
+    if (open === m.id) { setOpen(''); return }
+    setOpen(m.id)
+    if (detail[m.id]) return
+    if (matches.top_explain?.other?.id === m.id) {
+      setDetail(d => ({ ...d, [m.id]: matches.top_explain }))
+    } else if (entityId) {
+      const ex = await api.explainPair(productKey, entityId, m.id).catch(() => null)
+      setDetail(d => ({ ...d, [m.id]: ex }))
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Similar tools <span className="muted">(live, across all products)</span></h2>
+      <table><tbody>{visible.slice(0, 5).flatMap(m => {
+        const rows = [(
+          <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
+            <td><b className="score">{m.product_key}/{m.name}</b></td>
+            <td><b className="score">{Math.round(m.score * 100)}%</b></td>
+            <td>{m.score >= th ? <span className="pill off">above threshold</span>
+              : m.score >= th * 0.7 ? <span className="pill aud">related</span> : null}
+              <span className="muted" style={{ marginLeft: 8 }}>{open === m.id ? '▾' : '▸'}</span></td>
+          </tr>)]
+        if (open === m.id) {
+          const ex = detail[m.id]
+          rows.push(
+            <tr key={m.id + 'x'}><td colSpan={3} style={{ background: '#f8f9fa' }}>
+              {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span> : <div>
+                {ex.subscores && <div className="row" style={{ gap: 18 }}>
+                  {Object.entries(ex.subscores).map(([k, v]: [string, any]) => (
+                    <span key={k} className="muted">{k}: <b className="score">{Math.round(v * 100)}%</b></span>))}
+                </div>}
+                {ex.shared?.terms?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
+                  Common terms: {ex.shared.terms.slice(0, 8).map((t: string) =>
+                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
+                {ex.shared?.parameters?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
+                  Common parameters: {ex.shared.parameters.map((t: string) =>
+                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
+                {(ex.recommendations ?? []).map((r: any, i: number) => (
+                  <div key={i} className={r.severity === 'high' ? 'err' : 'ok-banner'}
+                    style={{ margin: '6px 0' }}>{r.message}</div>))}
+              </div>}
+            </td></tr>)
+        }
+        return rows
+      })}</tbody></table>
+    </div>
+  )
 }
-const ALL_TYPES = Object.keys(TYPE_DEFAULTS)
 
-const MCP_HINTS = [
-  { key: 'readOnlyHint', label: 'Read-only', help: 'Does not modify any state' },
-  { key: 'destructiveHint', label: 'Destructive', help: 'May delete or irreversibly change data' },
-  { key: 'idempotentHint', label: 'Idempotent', help: 'Safe to call repeatedly with the same args' },
-  { key: 'openWorldHint', label: 'Open world', help: 'Interacts with external systems / the internet' },
-]
-
-function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferentiate, onImportToggle }: any) {
-  const th = matches?.threshold ?? 0.5
-  const top = matches?.matches?.[0]
-  const flagged = top && top.score >= th
+/* ---------- base form ---------- */
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
+  const th = matches?.threshold ?? 0.5
+  const top = matches?.matches?.[0]
+  const flagged = top && top.score >= th
   return (
     <div className="card">
       <label>Tool name {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
@@ -309,35 +248,41 @@ function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferent
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span>⚠ {Math.round(top.score * 100)}% similar to <b className="score">{top.product_key}/{top.name}</b>
-              {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}</span>
-            {onDifferentiate && <button className="small" onClick={onDifferentiate}
-              style={{ flexShrink: 0 }}>✦ Differentiate with AI</button>}
-          </div>
+          ⚠ {Math.round(top.score * 100)}% similar to <b className="score">{top.product_key}/{top.name}</b>
+          {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}
         </div>
       )}
-      <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
+      <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
-        <div className="row">
-          {onImportToggle && <button className="small" onClick={onImportToggle}>Import JSON</button>}
-          <button className="small" onClick={() => {
-            if (!jsonMode) setJsonText(JSON.stringify(payload.input_schema, null, 2))
-            setJsonErr(''); setJsonMode(!jsonMode)
-          }}>{jsonMode ? 'Back to form' : 'Edit schema as JSON'}</button>
-        </div>
+        <button className="small" onClick={() => {
+          if (!jsonMode) setJsonText(JSON.stringify(payload.input_schema, null, 2))
+          setJsonErr(''); setJsonMode(!jsonMode)
+        }}>{jsonMode ? 'Back to form' : 'Paste / edit JSON'}</button>
       </div>
       {jsonMode ? (
         <>
           <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 260 }}
             value={jsonText} onChange={e => {
               setJsonText(e.target.value)
-              try { const s = JSON.parse(e.target.value); setJsonErr(''); set({ input_schema: s }) }
-              catch { setJsonErr('Invalid JSON — fix it to apply (the last valid schema is kept)') }
+              let p: any
+              try { p = JSON.parse(e.target.value) } catch {
+                setJsonErr('Invalid JSON — the last valid state is kept'); return }
+              setJsonErr('')
+              p = p.payload ?? p
+              if (p.inputSchema && !p.input_schema) p = { ...p, input_schema: p.inputSchema }
+              if (p.name) {
+                setPayload({ name: p.name, title: p.title ?? '', description: p.description ?? '',
+                  input_schema: p.input_schema ?? { type: 'object', properties: {} },
+                  annotations: p.annotations ?? {}, auth: p.auth ?? {},
+                  audiences: p.audiences ?? {} })
+              } else if (p.type === 'object' || p.properties) {
+                set({ input_schema: p })
+              } else setJsonErr('Unrecognized shape — paste a JSON Schema or a full tool definition')
             }} />
           {jsonErr && <div className="err">{jsonErr}</div>}
-          <p className="muted">Full JSON Schema: nested objects, arrays of objects, enums,
-            patterns — validated live by the preview.</p>
+          <p className="muted">Paste a bare JSON Schema (replaces parameters) or a full tool / MCP
+            definition (<code>name, description, inputSchema</code> — fills the whole form).
+            Validated live by the preview.</p>
         </>
       ) : (
         <SchemaTree schema={payload.input_schema}
@@ -360,18 +305,28 @@ function BaseForm({ payload, params, set, setSchema, isNew, matches, onDifferent
           </label>
         ))}
       </div>
-
     </div>
   )
 }
 
-function AudienceForm({ aud, overlay, params, setOverlay, errFor }: any) {
+/* ---------- audience form: same experience as Base ---------- */
+const TYPE_DEFAULTS: Record<string, any> = {
+  string: { type: 'string' }, integer: { type: 'integer' }, number: { type: 'number' },
+  boolean: { type: 'boolean' },
+  array: { type: 'array', items: { type: 'string' } },
+  object: { type: 'object', properties: {} },
+}
+const ALL_TYPES = Object.keys(TYPE_DEFAULTS)
+
+function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor }: any) {
   const ov = overlay.overrides ?? {}
   const pOps = ov.parameters ?? {}
   const enabled = overlay.enabled !== false
   const [ovJsonMode, setOvJsonMode] = useState(false)
   const [ovJsonText, setOvJsonText] = useState('')
   const [ovJsonErr, setOvJsonErr] = useState('')
+  const [add, setAdd] = useState({ name: '', type: 'string', description: '', default: '' })
+
   const setOv = (patch: any) => setOverlay(aud, (o: Overlay) => ({ ...o, overrides: { ...(o.overrides ?? {}), ...patch } }))
   const setParamOp = (op: string, name: string, value: any | null) => setOverlay(aud, (o: Overlay) => {
     const ovr = { ...(o.overrides ?? {}) }; const po = { ...(ovr.parameters ?? {}) }
@@ -382,47 +337,45 @@ function AudienceForm({ aud, overlay, params, setOverlay, errFor }: any) {
     return { ...o, overrides: ovr }
   })
   const opOf = (name: string) => pOps.hide?.[name] ? 'hide' : pOps.modify?.[name] ? 'modify' : 'inherit'
-  const [add, setAdd] = useState({ name: '', type: 'string', description: '', default: '' })
 
   return (
     <div className="card">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0 }}>Overrides for audience: <span className="pill aud">{aud}</span></h2>
-        {!enabled && <span className="pill off">hidden from this audience — enable in Manage → Audience access</span>}
+      <div className="toolbar">
+        <h2 style={{ margin: 0 }}>Overrides for <span className="pill aud">{aud}</span></h2>
+        {!enabled && <span className="pill off">hidden — enable in Manage → Audience access</span>}
+        <button className="small" onClick={() => {
+          if (!ovJsonMode) setOvJsonText(JSON.stringify(overlay, null, 2))
+          setOvJsonErr(''); setOvJsonMode(!ovJsonMode)
+        }}>{ovJsonMode ? 'Back to form' : 'Paste / edit JSON'}</button>
       </div>
-      {enabled && <>
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
-          <button className="small" onClick={() => {
-            if (!ovJsonMode) setOvJsonText(JSON.stringify(overlay, null, 2))
-            setOvJsonErr(''); setOvJsonMode(!ovJsonMode)
-          }}>{ovJsonMode ? 'Back to form' : 'Edit overlay as JSON (complex overrides)'}</button>
-        </div>
-        {ovJsonMode ? (
-          <>
-            <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 240 }}
-              value={ovJsonText} onChange={e => {
-                setOvJsonText(e.target.value)
-                try { const o = JSON.parse(e.target.value); setOvJsonErr(''); setOverlay(aud, () => o) }
-                catch { setOvJsonErr('Invalid JSON — the last valid overlay is kept') }
-              }} />
-            {ovJsonErr && <div className="err">{ovJsonErr}</div>}
-            <p className="muted">Full overlay JSON: {'{'}"enabled", "overrides": {'{'}"description",
-              "parameters": {'{'}"add" | "modify" | "hide"{'}'}{'}'}{'}'} — modify accepts any partial
-              JSON Schema (nested subtrees replace). Validated live by the preview.</p>
-          </>
-        ) : (<>
-        <label className="switch" style={{ marginTop: 12 }}>
-          <input type="checkbox" style={{ width: 'auto' }} checked={'description' in ov}
-            onChange={e => e.target.checked ? setOv({ description: '' }) :
-              setOverlay(aud, (o: Overlay) => { const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x } })} />
-          Override description</label>
-        {'description' in ov
-          ? <textarea value={ov.description} onChange={e => setOv({ description: e.target.value })} />
-          : <div className="muted" style={{ padding: '6px 2px' }}>inherits base description</div>}
+      {ovJsonMode ? (
+        <>
+          <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 240 }}
+            value={ovJsonText} onChange={e => {
+              setOvJsonText(e.target.value)
+              try { const o = JSON.parse(e.target.value); setOvJsonErr(''); setOverlay(aud, () => o) }
+              catch { setOvJsonErr('Invalid JSON — the last valid overlay is kept') }
+            }} />
+          {ovJsonErr && <div className="err">{ovJsonErr}</div>}
+          <p className="muted">Overlay JSON: {'{'}"overrides": {'{'}"description", "parameters":
+            {'{'}"add" | "modify" | "hide"{'}'}{'}'}{'}'} — modify accepts any partial JSON Schema.</p>
+        </>
+      ) : enabled && (<>
+        <label>Description for {aud} <span className="muted" style={{ fontWeight: 400 }}>
+          {('description' in ov) ? '(overridden)' : '(inheriting base — start typing to override)'}</span></label>
+        <textarea value={ov.description ?? basePayload.description ?? ''}
+          placeholder={basePayload.description}
+          onChange={e => setOv({ description: e.target.value })} />
+        {('description' in ov) && (
+          <button className="small" style={{ marginTop: 4 }} onClick={() =>
+            setOverlay(aud, (o: Overlay) => {
+              const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
+            })}>Reset to base description</button>
+        )}
 
-        <label>Parameters for this audience</label>
+        <label style={{ marginTop: 14 }}>Parameters for {aud}</label>
         <table>
-          <thead><tr><th>Param</th><th>Treatment</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Treatment</th><th>Details</th></tr></thead>
           <tbody>
             {params.map((p: Param) => {
               const op = opOf(p.name)
@@ -436,16 +389,16 @@ function AudienceForm({ aud, overlay, params, setOverlay, errFor }: any) {
                       if (e.target.value === 'modify') setParamOp('modify', p.name, { description: p.schema.description ?? '' })
                     }}>
                       <option value="inherit">inherit</option>
-                      <option value="modify">modify</option>
-                      <option value="hide">hide & pin</option>
+                      <option value="modify">customize</option>
+                      <option value="hide">hide</option>
                     </select>
                   </td>
                   <td style={{ width: '55%' }}>
-                    {op === 'modify' && <input placeholder="description for this audience"
+                    {op === 'modify' && <input placeholder={`description for ${aud}`}
                       value={pOps.modify[p.name].description ?? ''}
                       onChange={e => setParamOp('modify', p.name, { ...pOps.modify[p.name], description: e.target.value })} />}
-                    {op === 'hide' && <div className="row">
-                      <span className="param-op">pinned value →</span>
+                    {op === 'hide' && <div className="row" title={`${aud} callers never see this parameter; the tool always receives this fixed value — callers cannot override it`}>
+                      <span className="param-op">value sent to the tool →</span>
                       <input style={{ flex: 1 }} value={String(pOps.hide[p.name].pin ?? '')}
                         onChange={e => {
                           const raw = e.target.value
@@ -463,15 +416,15 @@ function AudienceForm({ aud, overlay, params, setOverlay, errFor }: any) {
             })}
             {Object.entries(pOps.add ?? {}).map(([name, schema]: [string, any]) => (
               <tr key={name}>
-                <td className="score">{name} <span className="param-op">added</span></td>
-                <td className="muted">{schema.type}, default {JSON.stringify(schema.default)}</td>
-                <td><button className="small danger" onClick={() => setParamOp('add', name, null)}>✕</button></td>
+                <td className="score">{name} <span className="param-op">only {aud}</span></td>
+                <td className="muted">{schema.type}</td>
+                <td><button className="icon-btn" title="Remove" onClick={() => setParamOp('add', name, null)}>✕</button></td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="row" style={{ marginTop: 10 }}>
-          <input style={{ flex: 1 }} placeholder="new param (this audience only)" value={add.name}
+          <input style={{ flex: 1 }} placeholder={`new parameter (visible to ${aud} only)`} value={add.name}
             onChange={e => setAdd({ ...add, name: e.target.value })} />
           <select style={{ width: 100 }} value={add.type} onChange={e => setAdd({ ...add, type: e.target.value })}>
             {ALL_TYPES.map(t => <option key={t}>{t}</option>)}
@@ -488,10 +441,9 @@ function AudienceForm({ aud, overlay, params, setOverlay, errFor }: any) {
             setParamOp('add', add.name, { ...TYPE_DEFAULTS[add.type], default: d,
               ...(add.description ? { description: add.description } : {}) })
             setAdd({ name: '', type: 'string', description: '', default: '' })
-          }}>+ Add param</button>
+          }}>+ Add</button>
         </div>
-        </>)}
-      </>}
+      </>)}
     </div>
   )
 }

@@ -116,7 +116,7 @@ class ProductSettings(Base):
 
 
 class AiConfig(Base):
-    """Per-product Bifrost (LLM gateway) config: base URL + virtual key, encrypted."""
+    """Reserved: per-product AI gateway config (feature currently removed)."""
     __tablename__ = "ai_configs"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
     product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), unique=True, index=True)

@@ -19,9 +19,6 @@ class Settings(BaseSettings):
     reranker: str = "fastembed"            # fastembed | none — cross-encoder pass on top pairs
     reranker_model: str = "BAAI/bge-reranker-base"   # permissive license, best equivalence ordering
     similarity_threshold: float = 0.50    # duplicates cutoff (installation default)
-    bifrost_url: str = ""                 # e.g. http://localhost:8080/v1 (OpenAI-compatible)
-    bifrost_key: str = ""                 # Bifrost virtual key (installation default)
-    llm_model: str = "anthropic/claude-sonnet-4-5"
 
     model_config = {"env_prefix": "REGISTRY_", "env_file": ".env", "extra": "ignore"}
 

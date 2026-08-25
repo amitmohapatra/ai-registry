@@ -90,9 +90,4 @@ export const api = {
   explainPair: (pk: string, id: string, otherId: string) => req<any>('GET', `/v1/products/${pk}/entities/${id}/explain/${otherId}`),
   settingsGet: (pk: string) => req<{ similarity_threshold: number }>('GET', `/v1/products/${pk}/settings`),
   settingsSet: (pk: string, s: any) => req<void>('PUT', `/v1/products/${pk}/settings`, s),
-  aiStatus: (pk: string) => req<{ configured: boolean; model: string | null }>('GET', `/v1/products/${pk}/ai-config/status`),
-  aiConfigGet: (pk: string) => req<{ base_url: string; api_key: string; model: string; generate_prompt?: string; explain_prompt?: string }>('GET', `/v1/products/${pk}/ai-config`),
-  aiConfigSet: (pk: string, c: any) => req<void>('PUT', `/v1/products/${pk}/ai-config`, c),
-  aiGenerate: (pk: string, draft: any) => req<{ suggestion: { description: string; title: string; param_descriptions: Record<string, string> }; model: string }>('POST', `/v1/products/${pk}/entities/ai/generate`, draft),
-  aiExplain: (pk: string, id: string, otherId: string) => req<{ analysis: string; model: string }>('POST', `/v1/products/${pk}/entities/${id}/explain/${otherId}/ai`),
 }
