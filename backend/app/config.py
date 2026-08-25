@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
     embedding_model: str = ""              # default: BAAI/bge-base-en-v1.5 for fastembed
     reranker: str = "fastembed"            # fastembed | none — cross-encoder pass on top pairs
-    reranker_model: str = "jinaai/jina-reranker-v1-turbo-en"
+    reranker_model: str = "BAAI/bge-reranker-base"   # permissive license, best equivalence ordering
     similarity_threshold: float = 0.50    # duplicates cutoff (installation default)
     bifrost_url: str = ""                 # e.g. http://localhost:8080/v1 (OpenAI-compatible)
     bifrost_key: str = ""                 # Bifrost virtual key (installation default)

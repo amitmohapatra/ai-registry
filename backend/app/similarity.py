@@ -23,6 +23,25 @@ def _tokens(text: str) -> set:
     return set(_TOKEN.findall(text.lower()))
 
 
+def desc_text_of(payload: dict) -> str:
+    """Description semantics only — names/titles deliberately excluded, so the
+    displayed match % measures MEANING, not naming coincidences."""
+    parts = [payload.get("description", "")]
+    for ov in (payload.get("audiences") or {}).values():
+        d = (ov.get("overrides") or {}).get("description")
+        if d:
+            parts.append(d)
+    return " ".join(p for p in parts if p)
+
+
+def name_similarity(a: str, b: str) -> float:
+    """Cheap deterministic name-collision signal (char-gram cosine)."""
+    from .embeddings import HashingEmbedder
+    emb = HashingEmbedder()
+    va, vb = emb._one(a.replace("_", " ")), emb._one(b.replace("_", " "))
+    return round(max(0.0, float(np.dot(va, vb))), 4)
+
+
 def rank(query_vec: List[float], query_text: str,
          candidates: List[dict], top_k: int = 10,
          exclude_id: Optional[str] = None) -> List[dict]:
@@ -148,7 +167,7 @@ class NoopReranker(Reranker):
 
 
 class FastEmbedReranker(Reranker):
-    def __init__(self, model: str = "jinaai/jina-reranker-v1-turbo-en"):
+    def __init__(self, model: str = "BAAI/bge-reranker-base"):
         from fastembed.rerank.cross_encoder import TextCrossEncoder
         self._model = TextCrossEncoder(model)
         self.name = f"fastembed:{model}"
@@ -178,20 +197,88 @@ def reranker() -> Reranker:
     return _reranker
 
 
+_INFORMATIVE = re.compile(r"[a-z]{3,}")
+
+
+def _informative_count(text: str) -> int:
+    from .embeddings import _STOP
+    return len([t for t in _INFORMATIVE.findall(text.lower()) if t not in _STOP])
+
+
+def _jaccard(a: str, b: str) -> float:
+    ta, tb = _tokens(a), _tokens(b)
+    return len(ta & tb) / (len(ta | tb) or 1)
+
+
+_ACTION_CLASSES = {
+    "read":   {"get", "fetch", "retrieve", "list", "search", "find", "query", "view",
+               "show", "read", "lookup", "download", "check"},
+    "create": {"create", "add", "new", "register", "generate", "make", "submit",
+               "insert", "upload", "issue", "open"},
+    "update": {"update", "modify", "edit", "set", "change", "adjust", "patch",
+               "rename", "enable", "disable"},
+    "delete": {"delete", "remove", "erase", "cancel", "purge", "void", "revoke",
+               "archive", "close"},
+    "send":   {"send", "notify", "email", "push", "dispatch", "publish", "forward"},
+}
+_INFLECT = lambda w: {w, w + "s", w + "es", w + "d", w + "ed", w + "ing"}
+
+
+def action_class(text: str) -> Optional[str]:
+    """First recognizable action verb's class — for tools, the verb IS the capability."""
+    tokens = _TOKEN.findall(text.lower())
+    for t in tokens:
+        for cls, words in _ACTION_CLASSES.items():
+            if any(t in _INFLECT(w) for w in words):
+                return cls
+    return None
+
+
+def equivalence_score(rr: "Reranker", a: str, b: str) -> Optional[float]:
+    """Symmetric semantic-equivalence between two descriptions.
+
+    - thin guard: a description under 2 informative words cannot claim high
+      similarity — capped at 0.35 (the honest answer is 'not enough text to say')
+    - symmetric rerank: cross-encoders are query->document relevance models;
+      averaging both directions turns relevance into equivalence
+    - near-identical floor: >=80% token overlap IS equivalence, whatever the model says
+    """
+    if _informative_count(a) < 2 or _informative_count(b) < 2:
+        fwd = rr.score_pairs(a, [b])
+        return min(0.35, fwd[0]) if fwd else None
+    fwd = rr.score_pairs(a, [b])
+    bwd = rr.score_pairs(b, [a])
+    if not fwd or not bwd:
+        return None
+    score = (fwd[0] + bwd[0]) / 2
+    if _jaccard(a, b) >= 0.8:
+        score = max(score, 0.9)
+    # different action classes = different capabilities, whatever the topic overlap:
+    # "create an invoice" and "fetch an invoice" are never duplicates
+    ca, cb = action_class(a), action_class(b)
+    if ca and cb and ca != cb:
+        score = min(score, 0.45)
+    return round(score, 4)
+
+
 def apply_rerank(query_text: str, ranked: List[dict], text_of: Dict[str, str]) -> List[dict]:
-    """Rescore ranked matches with the cross-encoder; falls back to cosine scores.
-    Adds method: 'reranked' | 'cosine' so consumers know what the % means."""
+    """Rescore ranked matches with symmetric cross-encoder equivalence; falls back
+    to cosine. method: 'reranked' | 'thin-description' | 'cosine'."""
     rr = reranker()
-    texts = [text_of.get(m["id"], "") for m in ranked]
-    scores = rr.score_pairs(query_text, texts) if texts else []
-    if not scores:
+    if isinstance(rr, NoopReranker):
         for m in ranked:
             m["method"] = "cosine"
         return ranked
-    for m, s in zip(ranked, scores):
+    thin_query = _informative_count(query_text) < 2
+    for m in ranked:
+        s = equivalence_score(rr, query_text, text_of.get(m["id"], ""))
+        if s is None:
+            m["method"] = "cosine"
+            continue
         m["cosine"] = m["score"]
         m["score"] = s
-        m["method"] = "reranked"
+        m["method"] = "thin-description" if (thin_query or
+            _informative_count(text_of.get(m["id"], "")) < 2) else "reranked"
     return sorted(ranked, key=lambda m: -m["score"])
 
 
@@ -204,10 +291,10 @@ def rerank_pairs(pairs: List[dict], text_of: Dict[str, str], cap: int = 100) -> 
             p["method"] = "cosine"
         return pairs
     for p in pairs[:cap]:
-        s = rr.score_pairs(text_of.get(p["a"]["id"], ""), [text_of.get(p["b"]["id"], "")])
-        if s:
+        s = equivalence_score(rr, text_of.get(p["a"]["id"], ""), text_of.get(p["b"]["id"], ""))
+        if s is not None:
             p["cosine"] = p["score"]
-            p["score"] = s[0]
+            p["score"] = s
             p["method"] = "reranked"
     for p in pairs[cap:]:
         p["method"] = "cosine"

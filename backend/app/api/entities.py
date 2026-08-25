@@ -8,7 +8,8 @@ from ..deps import require_member, require_product_admin
 from ..models import Entity, EntityVersion
 from ..schemas import DryRunOut, EntityIn, EntityOut, EntityPatch, SimilarOut, VersionOut
 from ..services import audience_keys, audit, delete_entity, write_entity
-from ..similarity import apply_rerank, duplicate_pairs, embed_text_of, rank, rerank_pairs
+from ..similarity import (apply_rerank, desc_text_of, duplicate_pairs, embed_text_of,
+                          name_similarity, rank, rerank_pairs)
 from ..config import get_settings
 
 router = APIRouter(prefix="/v1/products/{product_key}/entities", tags=["entities"])
@@ -146,7 +147,7 @@ async def _candidates(db: AsyncSession, scope_product_id: str = "") -> list:
         await db.commit()
     return [{"id": e.id, "product_id": e.product_id, "product_key": pkey,
              "type": e.type, "name": e.name, "text": embed_text_of(e.payload),
-             "vec": e.embedding} for e, pkey in rows]
+             "desc": desc_text_of(e.payload), "vec": e.embedding} for e, pkey in rows]
 
 
 @router.get("/{entity_id}/similar", response_model=list[SimilarOut])
@@ -159,7 +160,12 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
     cands = await _candidates(db, product.id if scope == "product" else "")
     qtext = embed_text_of(entity.payload)
     ranked = rank(entity.embedding, qtext, cands, top_k, exclude_id=entity.id)
-    return apply_rerank(qtext, ranked, {c["id"]: c["text"] for c in cands})
+    # displayed % = DESCRIPTION semantics; name collision reported separately
+    ranked = apply_rerank(desc_text_of(entity.payload), ranked,
+                          {c["id"]: c["desc"] for c in cands})
+    for m in ranked:
+        m["name_sim"] = name_similarity(entity.name, m["name"])
+    return ranked
 
 
 @router.get("/reports/duplicates")
@@ -172,5 +178,5 @@ async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = De
     th = threshold or await product_threshold(db, product.id)
     # cosine casts a wide net (lower floor), the cross-encoder gives the final say
     pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
-    pairs = rerank_pairs(pairs, {c["id"]: c["text"] for c in cands})
+    pairs = rerank_pairs(pairs, {c["id"]: c["desc"] for c in cands})
     return {"threshold": th, "pairs": [p for p in pairs if p["score"] >= th]}

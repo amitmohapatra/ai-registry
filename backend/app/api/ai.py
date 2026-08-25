@@ -13,7 +13,7 @@ from ..db import get_session
 from ..deps import get_product, require_member, require_product_admin, require_super
 from ..models import AiConfig, Entity, Product, User
 from ..services import audit, embedder
-from ..similarity import apply_rerank, embed_text_of, explain_pair, rank
+from ..similarity import apply_rerank, desc_text_of, embed_text_of, explain_pair, name_similarity, rank
 from .entities import _candidates, _get_entity
 
 router = APIRouter(prefix="/v1/products/{product_key}", tags=["ai"])
@@ -88,7 +88,10 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     cands = await _candidates(db, "")
     exclude = payload.get("_entity_id")            # editing an existing tool: skip itself
     matches = rank(vec, text, cands, top_k=5, exclude_id=exclude)
-    matches = apply_rerank(text, matches, {c["id"]: c["text"] for c in cands})
+    matches = apply_rerank(desc_text_of(payload), matches,
+                           {c["id"]: c["desc"] for c in cands})
+    for m in matches:
+        m["name_sim"] = name_similarity(payload.get("name", ""), m["name"])
     threshold = await product_threshold(db, product.id)
     top_explain = None
     if matches and matches[0]["score"] >= min(0.4, threshold):

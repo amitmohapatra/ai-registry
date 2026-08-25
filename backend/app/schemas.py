@@ -124,5 +124,6 @@ class SimilarOut(BaseModel):
     lexical: float
     method: str = "cosine"          # 'reranked' = cross-encoder verified this %
     cosine: Optional[float] = None  # pre-rerank retrieval score, when reranked
+    name_sim: Optional[float] = None  # separate name-collision signal, NOT in score
 
 TokenOut.model_rebuild()

@@ -144,3 +144,31 @@ async def test_paraphrase_duplicates_score_high(client):
     found = {frozenset((p["a"]["name"], p["b"]["name"])) for p in rep["pairs"]}
     assert {frozenset(("get_invoice", "fetch_invoice")),
             frozenset(("send_notification", "notify_user"))} <= found
+
+# ---- equivalence-score unit tests (stub reranker: CI never downloads models) ----
+
+class _StubReranker:
+    """Pretends to be a relevance cross-encoder that loves topical overlap."""
+    def score_pairs(self, query, candidates):
+        return [5.0 for _ in candidates]      # sigmoid(5) ~ 0.99 for everything
+
+
+def test_equivalence_guards():
+    from app.similarity import action_class, equivalence_score
+    rr = _StubReranker()
+    # thin description can never claim high similarity
+    s = equivalence_score(rr, "fetch", "Fetch an invoice by its ID.")
+    assert s is not None and s <= 0.35
+    # different action classes are capped even when the model says 99%
+    s = equivalence_score(rr, "Create a new invoice for a customer order.",
+                          "Fetch an invoice by ID for a customer order.")
+    assert s == 0.45
+    # same action class passes through untouched
+    s = equivalence_score(rr, "Fetch an invoice by its ID.",
+                          "Retrieve a billing document using its identifier.")
+    assert s > 0.9
+    # verb classification incl. inflections
+    assert action_class("Fetches the latest invoice") == "read"
+    assert action_class("Creating new user accounts") == "create"
+    assert action_class("Permanently deletes records") == "delete"
+    assert action_class("Weekly rotation of logs") is None
