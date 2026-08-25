@@ -23,8 +23,6 @@ export default function ToolEditor() {
   const [errors, setErrors] = useState<ValidationErr[]>([])
   const [preview, setPreview] = useState<any>(null)
   const [versions, setVersions] = useState<any[]>([])
-  const [similar, setSimilar] = useState<Similar[]>([])
-  const [simScope, setSimScope] = useState('product')
   const [saved, setSaved] = useState('')
   const [version, setVersion] = useState(0)
   const [canEdit, setCanEdit] = useState(true)
@@ -45,13 +43,8 @@ export default function ToolEditor() {
     if (entityId) {
       api.entity(productKey, entityId).then(e => { setPayload(e.payload); setVersion(e.version) })
       api.versions(productKey, entityId).then(setVersions)
-      api.similar(productKey, entityId, simScope).then(setSimilar).catch(() => {})
     }
   }, [productKey, entityId])
-
-  useEffect(() => {
-    if (entityId) api.similar(productKey, entityId, simScope).then(setSimilar).catch(() => {})
-  }, [simScope])
 
   // live preview: the SAME validate+resolve code path as save (dry-run endpoint)
   useEffect(() => {
@@ -228,7 +221,7 @@ export default function ToolEditor() {
           {matches && matches.matches.filter(m => m.score >= 0.3).length > 0 && (
             <div className="card">
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <h2 style={{ margin: 0 }}>Overlap check</h2>
+                <h2 style={{ margin: 0 }}>Similar tools <span className="muted">(live, across all products)</span></h2>
                 {canEdit && aiOn && <button className="small" disabled={aiBusy} onClick={() => aiGenerate()}>
                   {aiBusy ? 'Thinking…' : '✦ Improve with AI'}</button>}
               </div>
@@ -279,26 +272,6 @@ export default function ToolEditor() {
               ? JSON.stringify(tab === 'base' ? preview : { [tab]: preview[tab] }, null, 2)
               : errors.length ? '⚠ fix the errors to see the preview' : '…'}</div>
           </div>
-          {!isNew && (
-            <div className="card">
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <h2 style={{ margin: 0 }}>Similar tools</h2>
-                <select style={{ width: 200 }} value={simScope} onChange={e => setSimScope(e.target.value)}>
-                  <option value="product">Within product</option>
-                  <option value="all">Across products</option>
-                </select>
-              </div>
-              <table><tbody>{similar.filter(s => s.score >= 0.3).map(s => (
-                <tr key={s.id}><td><b className="score">{s.product_key}/{s.name}</b></td>
-                  <td><b className="score">{Math.round(s.score * 100)}%</b></td>
-                  <td>{s.score >= 0.8 ? <span className="pill off">possible duplicate</span>
-                    : s.score >= 0.5 ? <span className="pill aud">related</span> : null}</td></tr>
-              ))}
-              {similar.filter(s => s.score >= 0.3).length === 0 &&
-                <tr><td className="muted">No meaningfully similar tools (all below 30%).</td></tr>}
-              </tbody></table>
-            </div>
-          )}
         </div>
       </div>
     </>
