@@ -5,7 +5,7 @@ import copy
 import json
 
 from yourco_mcp import AuthUser, NoAuth, StaticTokenProvider
-from .conftest import SECURE_TOOL, TOOL, rpc
+from conftest import SECURE_TOOL, TOOL, rpc
 
 INTERNAL = StaticTokenProvider({
     "int-token": {"id": "svc-agent", "scopes": ["audience:internal", "payments:write"]},

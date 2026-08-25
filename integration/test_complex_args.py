@@ -3,7 +3,7 @@ object pins injected at call time, defaults, arrays, enums."""
 import json
 
 from yourco_mcp import NoAuth
-from .conftest import rpc
+from conftest import rpc
 
 COMPLEX = {
     "name": "create_order",

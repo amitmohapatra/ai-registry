@@ -5,13 +5,16 @@ description, schema, audiences or auth scopes in the UI — every running MCP
 server picks it up in seconds, no redeploy.
 
 ```
-ui/          React SPA (detachable — talks only to the REST API)
-backend/     FastAPI registry: RBAC, products, audiences, versioning,
-             Redis cache + per-product pub/sub, pgvector-ready similarity
-sdk/python/  yourco_mcp: build an MCP server whose metadata lives here
-contracts/   Versioned JSON Schemas: manifest + change events (the SDK contract)
-examples/    Demo product server (billing)
+backend/       FastAPI registry: RBAC, products, audiences, versioning,
+               Redis cache + per-product pub/sub, semantic similarity
+ui/            React SPA (detachable — talks only to the REST API)
+contracts/     Versioned JSON Schemas: manifest + change events (the SDK contract)
+integration/   SDK <-> registry contract tests (SDK installed from its own repo)
+scripts/       similarity benchmark etc.
 ```
+
+The **MCP SDK is a separate repository** (`../mcp-sdk` — `yourco-mcp` package):
+product teams install it independently; this repo owns the contract it implements.
 
 ## Quick start (Docker)
 

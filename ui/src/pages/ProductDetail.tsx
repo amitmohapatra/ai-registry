@@ -400,12 +400,9 @@ function AiConfigForm({ productKey }: { productKey: string }) {
       <label>Model</label>
       <input placeholder="anthropic/claude-sonnet-4-5" value={cfg.model}
         onChange={e => setCfg({ ...cfg, model: e.target.value })} />
-      <label>Generate prompt override (optional — author &amp; version it in your Bifrost prompt store)</label>
-      <textarea placeholder="Leave empty to use the built-in prompt" value={cfg.generate_prompt ?? ''}
-        onChange={e => setCfg({ ...cfg, generate_prompt: e.target.value })} />
-      <label>Explain prompt override (optional)</label>
-      <textarea placeholder="Leave empty to use the built-in prompt" value={cfg.explain_prompt ?? ''}
-        onChange={e => setCfg({ ...cfg, explain_prompt: e.target.value })} />
+      <p className="muted" style={{ marginTop: 8 }}>Prompts are authored and versioned in Bifrost
+        (your prompt store) — this card only connects the gateway. Advanced: per-product prompt
+        overrides remain available via the API (<code>PUT /ai-config</code>).</p>
       <div className="row" style={{ marginTop: 12 }}>
         <button className="primary" onClick={async () => {
           await api.aiConfigSet(productKey, cfg); toast('AI gateway saved') }}>Save AI config</button>

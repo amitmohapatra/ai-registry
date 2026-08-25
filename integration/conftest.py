@@ -9,8 +9,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, ".."))                      # yourco_mcp
-sys.path.insert(0, os.path.abspath(os.path.join(HERE, "../../../backend")))  # registry app
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, "../backend")))   # registry app
+# yourco_mcp comes from the installed package (pip install -e ../mcp-sdk)
 
 os.environ.setdefault("REGISTRY_JWT_SECRET", "test-secret")
 os.environ.setdefault("REGISTRY_EMBEDDING_PROVIDER", "hashing")   # deterministic, no downloads

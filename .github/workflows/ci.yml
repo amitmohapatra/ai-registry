@@ -22,18 +22,24 @@ jobs:
           REGISTRY_EMBEDDING_PROVIDER: hashing
           REGISTRY_RERANKER: none
 
-  sdk:
+  integration:
+    # SDK <-> registry contract tests. The SDK lives in its own repo (mcp-sdk);
+    # update `repository:` below to your org path once remotes exist.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: yourco/mcp-sdk        # TODO: real org/repo
+          path: mcp-sdk
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r backend/requirements.txt && pip install ./sdk/python
-      - name: SDK e2e tests (against in-process registry)
-        run: python -m pytest sdk/python/tests -q
+      - run: pip install -r backend/requirements.txt && pip install ./mcp-sdk
+      - name: Contract integration tests
+        run: python -m pytest integration -q
         env:
           REGISTRY_EMBEDDING_PROVIDER: hashing
           REGISTRY_RERANKER: none
