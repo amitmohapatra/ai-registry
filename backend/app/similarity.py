@@ -95,13 +95,32 @@ def duplicate_pairs(candidates: List[dict], threshold: float) -> List[dict]:
     return sorted(pairs, key=lambda p: -p["score"])
 
 
+def _sym_rerank(rr, a: str, b: str) -> Optional[float]:
+    """Symmetric cross-encoder score without guards — for sub-scores."""
+    import math as _m
+    if not a.strip() or not b.strip():
+        return 0.0
+    fwd = rr.score_pairs(a, [b])
+    bwd = rr.score_pairs(b, [a])
+    if not fwd or not bwd:
+        return None
+    return round((fwd[0] + bwd[0]) / 2, 4)
+
+
 def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
-    """Deterministic overlap breakdown between two entity payloads:
-    which parts are common, per-field sub-scores, and actionable recommendations."""
+    """Overlap breakdown between two entity payloads: per-field sub-scores computed
+    by the SAME engine as the headline match % (neural when available), plus shared
+    evidence and actionable recommendations."""
     from .embeddings import HashingEmbedder
     emb = HashingEmbedder()
+    rr = reranker()
+    neural = not isinstance(rr, NoopReranker)
 
     def cos(x: str, y: str) -> float:
+        if neural:
+            s = _sym_rerank(rr, x, y)
+            if s is not None:
+                return s
         vx, vy = emb._one(x), emb._one(y)
         return round(max(0.0, float(np.dot(vx, vy))), 4)
 
@@ -110,8 +129,11 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
                                        "on", "with", "and", "or", "its", "is", "it")}
 
     a_desc, b_desc = a.get("description", ""), b.get("description", "")
-    name_sim = cos(a.get("name", ""), b.get("name", ""))
-    desc_sim = cos(a_desc, b_desc)
+    name_sim = cos(a.get("name", "").replace("_", " "), b.get("name", "").replace("_", " "))
+    if neural:
+        desc_sim = equivalence_score(rr, a_desc, b_desc) or 0.0   # guards incl. action-class
+    else:
+        desc_sim = cos(a_desc, b_desc)
     a_params = set((a.get("input_schema") or {}).get("properties", {}))
     b_params = set((b.get("input_schema") or {}).get("properties", {}))
     shared_params = sorted(a_params & b_params)
