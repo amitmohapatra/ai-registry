@@ -153,3 +153,21 @@ async def test_duplicate_scores_are_valid_percentages(client):
     assert top["score"] > 0.999 and top["cross_product"] is True      # identical -> 100%
     names = {top["a"]["name"], top["b"]["name"]}
     assert names == {"sync_users"}
+
+
+async def test_manifest_conditional_304(client):
+    su = await login(client)
+    await make_product(client, su, "billing")
+    key = await _key(client, su)
+    r = await client.get("/v1/products/billing/manifest", headers={"X-API-Key": key})
+    etag = r.headers["etag"]
+    # unchanged -> free 304, no body
+    r = await client.get("/v1/products/billing/manifest",
+                         headers={"X-API-Key": key, "If-None-Match": etag})
+    assert r.status_code == 304 and not r.content
+    # a write invalidates the etag
+    await client.post("/v1/products/billing/entities",
+                      json={"type": "tool", "payload": TOOL}, headers=su)
+    r = await client.get("/v1/products/billing/manifest",
+                         headers={"X-API-Key": key, "If-None-Match": etag})
+    assert r.status_code == 200 and r.json()["seq"] == 1

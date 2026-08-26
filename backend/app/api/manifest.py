@@ -6,7 +6,7 @@ Two push options for SDKs:
 """
 import json
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Header, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,13 @@ router = APIRouter(prefix="/v1/products/{product_key}", tags=["manifest"])
 
 @router.get("/manifest")
 async def manifest(response: Response, product: Product = Depends(product_from_api_key),
-                   db: AsyncSession = Depends(get_session)):
+                   db: AsyncSession = Depends(get_session),
+                   if_none_match: str = Header(default="")):
+    """ETag = the product's seq. Pollers send If-None-Match and get a free 304
+    when nothing changed — this is what makes the SDK's pub/sub fallback cheap."""
+    etag = f'W/"{product.seq}"'
+    if if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
     m = await cached_manifest(db, product)
     response.headers["ETag"] = f'W/"{m["seq"]}"'
     return m
