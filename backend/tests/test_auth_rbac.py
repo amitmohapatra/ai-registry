@@ -165,3 +165,20 @@ async def test_excel_export_rbac(client):
                              headers=alice)).status_code == 200          # own product: ok
     assert (await client.get("/v1/products/billing/entities/reports/export",
                              params={"scope": "all"}, headers=alice)).status_code == 403
+
+
+async def test_single_active_api_key_rotation(client):
+    su = await login(client)
+    await make_product(client, su, "billing")
+    k1 = (await client.post("/v1/products/billing/api-keys", headers=su)).json()
+    assert (await client.get("/v1/products/billing/manifest",
+                             headers={"X-API-Key": k1["plaintext"]})).status_code == 200
+    # creating a second key ROTATES: k1 dies in the same moment k2 is born
+    k2 = (await client.post("/v1/products/billing/api-keys", headers=su)).json()
+    assert (await client.get("/v1/products/billing/manifest",
+                             headers={"X-API-Key": k1["plaintext"]})).status_code == 401
+    assert (await client.get("/v1/products/billing/manifest",
+                             headers={"X-API-Key": k2["plaintext"]})).status_code == 200
+    # exactly one active key, ever
+    keys = (await client.get("/v1/products/billing/api-keys", headers=su)).json()
+    assert sum(1 for k in keys if not k["revoked"]) == 1

@@ -181,13 +181,21 @@ async def list_audiences(ctx: tuple = Depends(require_member), db: AsyncSession 
 
 @router.post("/{product_key}/api-keys", response_model=ApiKeyCreated, status_code=201)
 async def create_key(ctx: tuple = Depends(require_product_admin),
-                     db: AsyncSession = Depends(get_session), name: str = "default"):
+                     db: AsyncSession = Depends(get_session)):
+    """ONE active key per product. Creating a key REVOKES any existing active key
+    in the same transaction (rotation, not accumulation) — the plaintext is
+    returned exactly once, for the team to keep in their MCP server's env."""
     product, actor, _ = ctx
+    actives = (await db.execute(select(ApiKey).where(
+        ApiKey.product_id == product.id, ApiKey.revoked == False))).scalars().all()  # noqa: E712
+    for k in actives:
+        k.revoked = True
     plaintext, digest, prefix = new_api_key()
-    key = ApiKey(product_id=product.id, name=name, key_hash=digest, prefix=prefix)
+    key = ApiKey(product_id=product.id, name="default", key_hash=digest, prefix=prefix)
     db.add(key)
     await db.commit()
-    await audit(db, actor, "apikey.create", prefix, product.id)
+    await audit(db, actor, "apikey.rotate" if actives else "apikey.create",
+                prefix, product.id, {"revoked": [k.prefix for k in actives]})
     return ApiKeyCreated(id=key.id, name=key.name, prefix=prefix, revoked=False, plaintext=plaintext)
 
 

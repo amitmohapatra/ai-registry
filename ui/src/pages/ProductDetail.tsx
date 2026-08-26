@@ -258,26 +258,35 @@ function Settings({ productKey, me, canEdit }: { productKey: string; me: User | 
     <>
       {canEdit && (
         <div className="card">
-          <h2>SDK API keys</h2>
-          <p className="muted">Product MCP servers authenticate to the registry with these. The plaintext is shown once.</p>
+          <h2>SDK API key</h2>
+          <p className="muted">One active key per product. Your MCP server keeps it as
+            <code> REGISTRY_API_KEY</code>. Regenerating replaces it immediately — the old
+            key stops working the moment the new one exists.</p>
           {fresh && <div className="ok-banner row" style={{ justifyContent: 'space-between' }}>
-            <span>New key (shown once): <b className="score">{fresh}</b></span>
+            <span>New key (shown once — copy it into your server's env): <b className="score">{fresh}</b></span>
             <button className="small" onClick={() => { navigator.clipboard.writeText(fresh); setCopied(true); toast('API key copied to clipboard'); setTimeout(() => setCopied(false), 2000) }}>
               {copied ? '✓ Copied' : 'Copy'}</button>
           </div>}
-          <table>
-            <thead><tr><th>Prefix</th><th>Name</th><th>Status</th><th /></tr></thead>
-            <tbody>{keys.map(k => (
-              <tr key={k.id}><td className="score">{k.prefix}…</td><td>{k.name}</td>
-                <td>{k.revoked ? <span className="pill off">revoked</span> : <span className="pill on">active</span>}</td>
-                <td>{!k.revoked && <ConfirmButton label="Revoke" confirmLabel="Revoke now?"
-                  title="SDKs using this key lose registry access"
+          {(() => {
+            const active = keys.find(k => !k.revoked)
+            return (
+              <div className="row">
+                {active
+                  ? <span>Active key: <b className="score">{active.prefix}…</b> <span className="pill on">active</span></span>
+                  : <span className="muted">No active key — issue one to connect an MCP server.</span>}
+                {active
+                  ? <ConfirmButton label="Regenerate" confirmLabel="Replace key?"
+                      title="The current key stops working immediately"
+                      onConfirm={createKey} />
+                  : <button className="primary small" onClick={createKey}>Issue key</button>}
+                {active && <ConfirmButton label="Revoke" confirmLabel="Revoke now?"
+                  title="Your MCP servers lose registry access until a new key is issued"
                   onConfirm={async () => {
-                    await api.revokeApiKey(productKey, k.id); toast(`Key ${k.prefix}… revoked`); loadKeys()
-                  }} />}</td></tr>
-            ))}</tbody>
-          </table>
-          <button className="primary small" style={{ marginTop: 10 }} onClick={createKey}>Issue new key</button>
+                    await api.revokeApiKey(productKey, active.id); toast('Key revoked'); loadKeys()
+                  }} />}
+              </div>
+            )
+          })()}
         </div>
       )}
       {me?.is_super_admin && (
