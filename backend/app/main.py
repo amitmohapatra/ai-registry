@@ -39,7 +39,24 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=get_settings().app_name, version="1.0.0", lifespan=lifespan)
+    app = FastAPI(
+        title=get_settings().app_name,
+        version="1.0.0",
+        lifespan=lifespan,
+        description=(
+            "Runtime registry for MCP tools and agents: audiences, versioning, RBAC, "
+            "semantic duplicate detection, and per-product pub/sub so connected MCP "
+            "servers hot-reload metadata in milliseconds. Interactive docs: /docs"
+        ),
+        openapi_tags=[
+            {"name": "auth", "description": "Login, users (super admin)"},
+            {"name": "products", "description": "Onboarding, members, audiences, API key, channels"},
+            {"name": "entities", "description": "Tools/agents CRUD, versions, similarity, export"},
+            {"name": "manifest", "description": "Data plane consumed by the MCP SDK (API-key auth)"},
+            {"name": "ai", "description": "Similarity preview, overlap explain, product settings"},
+            {"name": "audit", "description": "Per-product audit log"},
+        ],
+    )
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
     for r in (auth.router, products.router, entities.router, manifest.router, audit.router, ai.router):

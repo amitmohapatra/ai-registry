@@ -53,7 +53,7 @@ class HashingEmbedder(EmbeddingProvider):
             for n in (3, 4):
                 for i in range(len(t) - n + 1):
                     add(f"c{n}:{t[i:i+n]}", 0.35)
-        for a, b in zip(tokens, tokens[1:]):
+        for a, b in zip(tokens, tokens[1:], strict=False):
             add(f"b:{a}_{b}", 0.8)
         return feats
 

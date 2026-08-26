@@ -1,5 +1,6 @@
 """Two-tier cache (Strategy): in-process L1 with TTL always on; Redis L2 optional.
 Invalidation is driven by the same publish that notifies SDKs."""
+import contextlib
 import json
 import time
 from abc import ABC, abstractmethod
@@ -75,18 +76,14 @@ class TieredCache(Cache):
     async def set(self, key: str, value, ttl: int):
         await self.l1.set(key, value, ttl)
         if self.l2:
-            try:
+            with contextlib.suppress(Exception):
                 await self.l2.set(key, value, ttl)
-            except Exception:
-                pass
 
     async def delete(self, key: str):
         await self.l1.delete(key)
         if self.l2:
-            try:
+            with contextlib.suppress(Exception):
                 await self.l2.delete(key)
-            except Exception:
-                pass
 
 
 def build_cache(redis_url: str = "") -> TieredCache:

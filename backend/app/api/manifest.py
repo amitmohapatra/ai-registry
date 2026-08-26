@@ -4,7 +4,6 @@ Two push options for SDKs:
 - Redis pub/sub (when the super admin configured a channel for the product)
 - /events SSE stream served straight off the registry's bus (zero-infra fallback)
 """
-import asyncio
 import json
 
 from fastapi import APIRouter, Depends, Response

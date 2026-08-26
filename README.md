@@ -70,6 +70,10 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/python -m pytest tests -q       # 27 tests
-cd sdk/python && ../../.venv/bin/python -m pytest tests -q # 15 e2e tests
+cd backend && ../.venv/bin/python -m pytest tests -q     # unit + API tests
+../.venv/bin/python -m pytest integration -q             # SDK contract tests
+../.venv/bin/ruff check --config backend/ruff.toml backend/app   # lint gate
 ```
+
+The MCP SDK lives at [amitmohapatra/mcp-sdk](https://github.com/amitmohapatra/mcp-sdk);
+`integration/` here runs its e2e suite against this registry (also in CI).

@@ -10,7 +10,6 @@ from ..schemas import DryRunOut, EntityIn, EntityOut, EntityPatch, SimilarOut, V
 from ..services import audience_keys, audit, delete_entity, write_entity
 from ..similarity import (apply_rerank, duplicate_pairs, embed_text_of,
                           name_similarity, rank, rerank_pairs)
-from ..config import get_settings
 
 router = APIRouter(prefix="/v1/products/{product_key}/entities", tags=["entities"])
 
@@ -47,7 +46,7 @@ async def list_entities(response: Response, ctx: tuple = Depends(require_member)
                         offset: int = Query(default=0, ge=0)):
     """Paginated + searchable. Total count is returned in X-Total-Count so the
     response stays a plain array (stable contract for existing clients)."""
-    from sqlalchemy import func, or_
+    from sqlalchemy import func
     product, _, _ = ctx
     stmt = select(Entity).where(Entity.product_id == product.id, Entity.is_deleted == False)  # noqa: E712
     if type:
@@ -193,7 +192,7 @@ async def _candidates(db: AsyncSession, scope_product_id: str = "") -> list:
     stale = [e for e, _ in rows if e.embedding_model != embedder().name]
     if stale:
         vecs = await embedder().embed([embed_text_of(e.payload) for e in stale])
-        for e, v in zip(stale, vecs):
+        for e, v in zip(stale, vecs, strict=False):
             e.embedding, e.embedding_model = v, embedder().name
         await db.commit()
     return [{"id": e.id, "product_id": e.product_id, "product_key": pkey,

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import overlay as ov
 from .cache import cache
 from .config import get_settings
-from .crypto import decrypt_json, encrypt_json
+from .crypto import decrypt_json
 from .embeddings import build_provider
 from .events import bus_router
 from .models import Audience, AuditLog, Entity, EntityVersion, Product

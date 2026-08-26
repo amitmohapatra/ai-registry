@@ -91,13 +91,12 @@ def duplicate_pairs(candidates: List[dict], threshold: float) -> List[dict]:
         "b": {k: cands[j][k] for k in ("id", "name", "product_key", "type")},
         "score": round(max(0.0, float(sim[i, j])), 4),
         "cross_product": cands[i]["product_id"] != cands[j]["product_id"],
-    } for i, j in zip(iu[keep], ju[keep])]
+    } for i, j in zip(iu[keep], ju[keep], strict=True)]
     return sorted(pairs, key=lambda p: -p["score"])
 
 
 def _sym_rerank(rr, a: str, b: str) -> Optional[float]:
     """Symmetric cross-encoder score without guards — for sub-scores."""
-    import math as _m
     if not a.strip() or not b.strip():
         return 0.0
     fwd = rr.score_pairs(a, [b])
@@ -130,10 +129,8 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
 
     a_desc, b_desc = a.get("description", ""), b.get("description", "")
     name_sim = cos(a.get("name", "").replace("_", " "), b.get("name", "").replace("_", " "))
-    if neural:
-        desc_sim = equivalence_score(rr, a_desc, b_desc) or 0.0   # guards incl. action-class
-    else:
-        desc_sim = cos(a_desc, b_desc)
+    # neural path includes the guards (thin-description, action-class)
+    desc_sim = (equivalence_score(rr, a_desc, b_desc) or 0.0) if neural else cos(a_desc, b_desc)
     a_params = set((a.get("input_schema") or {}).get("properties", {}))
     b_params = set((b.get("input_schema") or {}).get("properties", {}))
     shared_params = sorted(a_params & b_params)
@@ -245,7 +242,8 @@ _ACTION_CLASSES = {
     "refund": {"refund", "reimburse", "chargeback"},
     "charge": {"capture", "charge", "authorize", "debit", "bill", "invoice_charge"},
 }
-_INFLECT = lambda w: {w, w + "s", w + "es", w + "d", w + "ed", w + "ing"}
+def _INFLECT(w: str) -> set:
+    return {w, w + "s", w + "es", w + "d", w + "ed", w + "ing"}
 
 
 def action_class(text: str) -> Optional[str]:

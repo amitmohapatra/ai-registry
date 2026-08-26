@@ -14,6 +14,11 @@ from ..services import audit, publish_change
 router = APIRouter(prefix="/v1/products", tags=["products"])
 
 
+def _product_out(product: Product, role: str) -> ProductOut:
+    return ProductOut(**{c: getattr(product, c) for c in
+                         ("id", "key", "name", "description", "seq", "is_active")}, role=role)
+
+
 @router.post("", response_model=ProductOut, status_code=201)
 async def create_product(body: ProductIn, db: AsyncSession = Depends(get_session),
                          actor: User = Depends(require_super)):
@@ -25,8 +30,7 @@ async def create_product(body: ProductIn, db: AsyncSession = Depends(get_session
     db.add(Audience(product_id=product.id, key="external", display_name="External", is_default=True))
     await db.commit()
     await audit(db, actor, "product.create", body.key, product.id)
-    return ProductOut(**{c: getattr(product, c) for c in
-                         ("id", "key", "name", "description", "seq", "is_active")}, role="super_admin")
+    return _product_out(product, "super_admin")
 
 
 @router.get("", response_model=list[ProductOut])
@@ -36,16 +40,14 @@ async def list_products(db: AsyncSession = Depends(get_session), user: User = De
     for p in (await db.execute(select(Product).where(Product.is_active == True))).scalars().all():  # noqa: E712
         role = await role_on(db, user, p)
         if role:
-            out.append(ProductOut(**{c: getattr(p, c) for c in
-                                     ("id", "key", "name", "description", "seq", "is_active")}, role=role))
+            out.append(_product_out(p, role))
     return out
 
 
 @router.get("/{product_key}", response_model=ProductOut)
 async def get_one(ctx: tuple = Depends(require_member)):
     product, _, role = ctx
-    return ProductOut(**{c: getattr(product, c) for c in
-                         ("id", "key", "name", "description", "seq", "is_active")}, role=role)
+    return _product_out(product, role)
 
 
 @router.delete("/{product_key}", status_code=204)

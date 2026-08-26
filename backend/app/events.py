@@ -4,6 +4,7 @@ InMemoryBus for single-process / tests; RedisBus when a product has Redis config
 The registry publishes to the product's own channel: registry:{product_key}.
 """
 import asyncio
+import contextlib
 import json
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -78,10 +79,9 @@ class BusRouter:
         return self._by_url[redis_url]
 
     async def publish(self, channel: str, message: dict, redis_url: str = "") -> None:
-        try:
+        with contextlib.suppress(Exception):
+            # control-plane publish must never break the write-transaction result
             await self.bus_for(redis_url).publish(channel, message)
-        except Exception:
-            pass  # control-plane publish must never break the write transaction result
         if redis_url:  # mirror on the in-process bus so local subscribers (tests/UI SSE) see it too
             await self.default.publish(channel, message)
 
