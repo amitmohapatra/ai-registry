@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: yourco/mcp-sdk        # TODO: real org/repo
+          repository: amitmohapatra/mcp-sdk
           path: mcp-sdk
       - uses: actions/setup-python@v5
         with:
