@@ -98,3 +98,51 @@ async def test_product_threshold_setting(client):
     # bounds enforced
     assert (await client.put("/v1/products/p1/settings",
                              json={"similarity_threshold": 1.5}, headers=su)).status_code == 422
+
+
+async def test_suggestions_on_flagged_draft(client):
+    """A flagged lookalike gets safe 'use this instead' suggestions: valid names,
+    unique across ALL products, plus a concrete description tip."""
+    su = await login(client)
+    await make_product(client, su, "billing")
+    await make_product(client, su, "shipping")
+    mk = lambda n, d, p=None: {"name": n, "description": d,
+        "input_schema": {"type": "object", "properties": p or {}}}
+    await client.post("/v1/products/billing/entities", headers=su, json={"type": "tool",
+        "payload": mk("get_invoice", "Fetch an invoice by its ID.",
+                      {"invoice_id": {"type": "string"}})})
+    await client.post("/v1/products/shipping/entities", headers=su, json={"type": "tool",
+        "payload": mk("get_invoice_pdf", "Fetch an invoice document.", {})})
+    # a draft that duplicates billing/get_invoice, with one genuinely distinct angle
+    draft = {"type": "tool", "payload": mk(
+        "get_invoice", "Fetch an invoice by its ID from the archived ledger.",
+        {"invoice_id": {"type": "string"}, "archive_year": {"type": "integer"}})}
+    r = await client.post("/v1/products/shipping/entities/similar-preview",
+                          json=draft, headers=su)
+    body = r.json()
+    s = body["suggestions"]
+    assert s and s["names"], body
+    import re
+    existing = {"get_invoice", "get_invoice_pdf"}
+    for n in s["names"]:
+        assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", n)
+        assert n.lower() not in existing            # collision-free across products
+        assert s["titles"][n][0].isupper()          # human title provided
+    # distinct angle surfaces in both a name and the tip
+    assert any("archive" in n or "ledger" in n for n in s["names"])
+    assert "archive" in s["description_tip"] or "ledger" in s["description_tip"]
+    # a clearly novel draft gets NO suggestions block
+    r = await client.post("/v1/products/shipping/entities/similar-preview",
+        json={"type": "tool", "payload": mk("rotate_logs",
+              "Rotate and compress server log files weekly.", {})}, headers=su)
+    assert r.json()["suggestions"] is None
+
+
+async def test_description_tip_when_nothing_distinct(client):
+    from app.suggestions import description_tip
+    a = {"name": "fetch_invoice", "description": "Fetch an invoice by ID.",
+         "input_schema": {"type": "object", "properties": {}}}
+    b = {"name": "get_invoice", "description": "Fetch an invoice by its ID.",
+         "input_schema": {"type": "object", "properties": {}}}
+    tip = description_tip(a, b)
+    assert "different" in tip and "get_invoice" in tip

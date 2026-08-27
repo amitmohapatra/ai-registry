@@ -157,8 +157,9 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
                                 "the same need, consider one shared tool with audiences instead."})
     if desc_sim >= 0.5 and (declared_effect(a) is None or declared_effect(b) is None):
         recs.append({"field": "annotations", "severity": "info",
-                     "message": "Set behavior hints (Read-only / Destructive) on both tools "
-                                "to make this capability comparison exact instead of inferred."})
+                     "message": "Tip: tick the 'Read-only' or 'Destructive' checkbox on both "
+                                "tools. That tells us what each tool actually does to data, "
+                                "so we can say for sure whether they really overlap."})
     if not recs:
         recs.append({"field": "overall", "severity": "info",
                      "message": "Overlap is moderate; likely acceptable as separate tools."})

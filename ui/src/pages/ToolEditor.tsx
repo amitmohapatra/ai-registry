@@ -6,7 +6,8 @@ import SchemaTree from '../SchemaTree'
 
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
-type Matches = { matches: Similar[]; top_explain: any; threshold?: number }
+type Matches = { matches: Similar[]; top_explain: any; threshold?: number
+  suggestions?: { names: string[]; titles: Record<string, string>; description_tip: string } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -257,6 +258,20 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ {Math.round(top.score * 100)}% similar to <b className="score">{top.product_key}/{top.name}</b>
           {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}
+          {matches.suggestions?.names?.length ? (
+            <div style={{ marginTop: 8 }}>
+              You could use instead:{' '}
+              {matches.suggestions.names.map((n: string) => (
+                <button key={n} className="small" style={{ marginRight: 6 }}
+                  title={`Rename to ${n}`}
+                  onClick={() => set({ name: n, title: matches.suggestions!.titles[n] })}>
+                  {n}</button>
+              ))}
+            </div>
+          ) : null}
+          {matches.suggestions?.description_tip && (
+            <div style={{ marginTop: 6, fontWeight: 400 }}>{matches.suggestions.description_tip}</div>
+          )}
         </div>
       )}
       <div className="toolbar" style={{ marginTop: 14 }}>

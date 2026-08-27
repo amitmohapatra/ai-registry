@@ -88,7 +88,20 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             top_explain = {"other": {"id": other.id, "name": other.name,
                                      "product_key": matches[0]["product_key"]},
                            **explain_pair(payload, other.payload)}
-    return {"matches": matches, "top_explain": top_explain, "threshold": threshold}
+    suggestions = None
+    if matches:
+        top = matches[0]
+        flagged = top["score"] >= threshold or (top.get("name_sim") or 0) >= 0.8
+        if flagged:
+            from ..suggestions import build_suggestions
+            other = await db.get(Entity, top["id"])
+            if other:
+                taken = {c["name"] for c in cands} | {payload.get("name", "")}
+                suggestions = build_suggestions(
+                    payload, other.payload, product.key, taken,
+                    name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold)
+    return {"matches": matches, "top_explain": top_explain, "threshold": threshold,
+            "suggestions": suggestions}
 
 # ---------- pairwise explain (saved entities) ----------
 
