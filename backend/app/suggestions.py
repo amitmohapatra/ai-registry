@@ -11,7 +11,9 @@ from .similarity import desc_text_of
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = {"a", "an", "the", "by", "for", "of", "to", "in", "on", "with", "and", "or",
-         "its", "is", "it", "this", "that", "get", "set"}
+         "its", "is", "it", "this", "that", "get", "set", "from", "into", "onto",
+         "via", "using", "about", "over", "under", "each", "all", "any", "when",
+         "then", "than", "also", "only", "will", "your", "their"}
 
 
 def humanize(name: str) -> str:
