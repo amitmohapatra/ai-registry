@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt asyncpg
 
 # pre-bake the similarity models: no internet needed at runtime, instant warm start
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-base-en-v1.5')" && \
-    python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder('jinaai/jina-reranker-v1-turbo-en')"
+    python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder; TextCrossEncoder('BAAI/bge-reranker-base')"
 
 COPY app ./app
 COPY alembic.ini .

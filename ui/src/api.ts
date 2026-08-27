@@ -17,6 +17,14 @@ export const setToken = (t: string) => { token = t; localStorage.setItem('token'
 export const clearToken = () => { token = ''; localStorage.removeItem('token') }
 export const hasToken = () => !!token
 
+export function errorText(ex: any): string {
+  const d = ex?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) return d.map((e: any) => e?.msg ?? JSON.stringify(e)).join('; ')
+  if (d?.errors) return d.errors.map((e: any) => `${e.path}: ${e.message}`).join('; ')
+  return ex?.message ?? 'Request failed'
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public detail: any) {
     super(typeof detail === 'string' ? detail : 'Request failed')
@@ -55,6 +63,7 @@ export const api = {
   products: () => req<Product[]>('GET', '/v1/products'),
   product: (key: string) => req<Product>('GET', `/v1/products/${key}`),
   createProduct: (p: any) => req<Product>('POST', '/v1/products', p),
+  deleteProduct: (key: string) => req<void>('DELETE', `/v1/products/${key}`),
   audiences: (pk: string) => req<Audience[]>('GET', `/v1/products/${pk}/audiences`),
   addAudience: (pk: string, a: any) => req<Audience>('POST', `/v1/products/${pk}/audiences`, a),
   deleteAudience: (pk: string, key: string) => req<void>('DELETE', `/v1/products/${pk}/audiences/${key}`),

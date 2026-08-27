@@ -51,12 +51,23 @@ async def get_one(ctx: tuple = Depends(require_member)):
 
 
 @router.delete("/{product_key}", status_code=204)
-async def deactivate(product: Product = Depends(get_product),
-                     db: AsyncSession = Depends(get_session),
-                     actor: User = Depends(require_super)):
-    product.is_active = False
+async def delete_product(product: Product = Depends(get_product),
+                         db: AsyncSession = Depends(get_session),
+                         actor: User = Depends(require_super)):
+    """Hard delete (super admin): removes the product with its entities, versions,
+    audiences, memberships, API keys and settings. The key becomes reusable.
+    Audit history is kept (audit rows reference the product by id, not FK).
+    Running MCP servers of this product keep serving from memory/snapshot but
+    lose registry access — decommission them separately."""
+    from ..models import AiConfig, ProductSettings
+    for model in (ApiKey, AiConfig, ProductSettings):
+        for row in (await db.execute(select(model).where(
+                model.product_id == product.id))).scalars().all():
+            await db.delete(row)
+    key, pid = product.key, product.id
+    await db.delete(product)          # cascades: entities+versions, audiences, memberships
     await db.commit()
-    await audit(db, actor, "product.deactivate", product.key, product.id)
+    await audit(db, actor, "product.delete", key, pid)
 
 # ---- channel config (super admin sets each product's Redis) ----
 

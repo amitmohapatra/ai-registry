@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, downloadExport, Product, User } from '../api'
+import { api, downloadExport, errorText, Product, User } from '../api'
+import { toast } from '../App'
+import { ConfirmButton } from '../components'
 
 export default function Products({ me, onCreated }: { me: User | null; onCreated?: () => void }) {
   const [products, setProducts] = useState<Product[]>([])
@@ -12,7 +14,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     try { await api.createProduct({ key, name: name || key }); setKey(''); setName(''); load(); onCreated?.() }
-    catch (ex: any) { setErr(String(ex.detail ?? 'Failed — key must be lowercase letters/digits/dashes')) }
+    catch (ex: any) { setErr(errorText(ex)) }
   }
 
   return (
@@ -25,7 +27,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
         )}</div>
       <div className="card">
         <table>
-          <thead><tr><th>Product</th><th>Key</th><th>Your role</th><th>Seq</th></tr></thead>
+          <thead><tr><th>Product</th><th>Key</th><th>Your role</th><th>Seq</th><th /></tr></thead>
           <tbody>
             {products.map(p => (
               <tr key={p.id}>
@@ -33,6 +35,13 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
                 <td className="score">{p.key}</td>
                 <td><span className={`pill ${p.role}`}>{p.role}</span></td>
                 <td className="score">{p.seq}</td>
+                <td>{me?.is_super_admin && <ConfirmButton icon
+                  label={`Delete ${p.name} and ALL its tools, versions, members and keys`}
+                  confirmLabel="Delete?" onConfirm={async () => {
+                    await api.deleteProduct(p.key)
+                    toast(`Product ${p.key} deleted`)
+                    load(); onCreated?.()
+                  }} />}</td>
               </tr>
             ))}
             {products.length === 0 && <tr><td colSpan={4} className="muted">No products yet.</td></tr>}

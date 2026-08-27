@@ -182,3 +182,29 @@ async def test_single_active_api_key_rotation(client):
     # exactly one active key, ever
     keys = (await client.get("/v1/products/billing/api-keys", headers=su)).json()
     assert sum(1 for k in keys if not k["revoked"]) == 1
+
+
+async def test_product_hard_delete_frees_key_and_cleans_up(client):
+    su = await login(client)
+    await make_product(client, su, "billing")
+    await client.post("/v1/products/billing/entities",
+                      json={"type": "tool", "payload": TOOL}, headers=su)
+    key = (await client.post("/v1/products/billing/api-keys", headers=su)).json()["plaintext"]
+    # duplicate key is rejected while the product exists
+    r = await client.post("/v1/products", json={"key": "billing", "name": "Again"}, headers=su)
+    assert r.status_code == 409
+    # super admin deletes -> product gone, its API key dead
+    assert (await client.delete("/v1/products/billing", headers=su)).status_code == 204
+    assert (await client.get("/v1/products/billing", headers=su)).status_code == 404
+    assert (await client.get("/v1/products/billing/manifest",
+                             headers={"X-API-Key": key})).status_code == 404
+    # the key name is FREE again — a fresh product can use it, starting empty
+    r = await client.post("/v1/products", json={"key": "billing", "name": "Reborn"}, headers=su)
+    assert r.status_code == 201
+    assert (await client.get("/v1/products/billing/entities", headers=su)).json() == []
+    # non-super-admin cannot delete
+    await make_user(client, su, "alice@co.com")
+    await client.put("/v1/products/billing/members",
+                     json={"email": "alice@co.com", "role": "admin"}, headers=su)
+    alice = await login(client, "alice@co.com", "secret1")
+    assert (await client.delete("/v1/products/billing", headers=alice)).status_code == 403
