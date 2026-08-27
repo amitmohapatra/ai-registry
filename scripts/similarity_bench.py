@@ -14,10 +14,13 @@ os.environ.setdefault("REGISTRY_RERANKER", "fastembed")
 
 from app.similarity import reranker, tool_equivalence  # noqa: E402
 
-T = lambda name, desc, params=None: {
-    "name": name, "description": desc,
-    "input_schema": {"type": "object",
-                     "properties": {p: {"type": t} for p, t in (params or {}).items()}}}
+def T(name, desc, params=None, ann=None, title=""):
+    return {"name": name, "description": desc, "title": title,
+            "annotations": ann or {},
+            "input_schema": {"type": "object",
+                             "properties": {p: {"type": t} for p, t in (params or {}).items()}}}
+
+R, W = {"readOnlyHint": True}, {"readOnlyHint": False}
 
 # label: 1 = duplicate (same capability), 0 = distinct
 PAIRS = [
@@ -57,6 +60,24 @@ PAIRS = [
     # thin descriptions must not claim duplicate
     (T("fetch_invoice_details", "fetch", {"invoice_id": "string"}),
      T("get_invoice", "Fetch an invoice by its ID.", {"invoice_id": "string"}), 0),
+    # ---- declared-effect (annotation) cases: exotic verbs, deterministic verdicts ----
+    (T("get_allocation_recommendation", "Recommends the optimal allocation for a portfolio.",
+       {"portfolio_id": "string"}, ann=R),
+     T("submit_allocation_adjustment", "Applies an allocation adjustment to the portfolio.",
+       {"portfolio_id": "string", "adjustment": "object"}, ann=W), 0),
+    (T("preview_statement", "Render a preview of the monthly statement.",
+       {"account_id": "string"}, ann=R),
+     T("finalize_statement", "Finalize and issue the monthly statement.",
+       {"account_id": "string"}, ann=W), 0),
+    (T("lookup_exchange_rate", "Look up the current exchange rate between two currencies.",
+       {"base": "string", "quote": "string"}, ann=R),
+     T("get_fx_rate", "Fetch the live FX conversion rate for a currency pair.",
+       {"from_ccy": "string", "to_ccy": "string"}, ann=R), 1),
+    # title carries the meaning when the name is cryptic
+    (T("svc_op_412", "Sends the invoice document to the customer over email.",
+       {"invoice_id": "string"}, title="Email invoice to customer"),
+     T("send_invoice_email", "Email an invoice to the customer.",
+       {"invoice_id": "string"}), 1),
 ]
 
 THRESHOLD = 0.5

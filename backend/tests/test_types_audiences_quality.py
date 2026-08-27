@@ -172,3 +172,86 @@ def test_equivalence_guards():
     assert action_class("Creating new user accounts") == "create"
     assert action_class("Permanently deletes records") == "delete"
     assert action_class("Weekly rotation of logs") is None
+
+# ---- declared-effect (annotation) capability ladder ----
+
+def _tool(name, desc, ann=None):
+    return {"name": name, "description": desc, "annotations": ann or {},
+            "input_schema": {"type": "object", "properties": {}}}
+
+
+def test_declared_effect_classification():
+    from app.similarity import declared_effect
+    assert declared_effect(_tool("t", "d")) is None                                # absent != false
+    assert declared_effect(_tool("t", "d", {"readOnlyHint": True})) == "read"
+    assert declared_effect(_tool("t", "d", {"readOnlyHint": False,
+                                            "destructiveHint": True})) == "destructive"
+    assert declared_effect(_tool("t", "d", {"readOnlyHint": False,
+                                            "destructiveHint": False})) == "write"
+    assert declared_effect(_tool("t", "d", {"readOnlyHint": False})) == "write?"
+
+
+def test_capability_ladder_precedence():
+    from app.similarity import capability_cap
+    # TIER 1 — the user's allocation case: verbs unclassifiable ('recommend'/'submit'
+    # phrasing), but annotations decide deterministically
+    reader = _tool("get_allocation_recommendation",
+                   "Recommends the optimal allocation for a portfolio.",
+                   {"readOnlyHint": True})
+    writer = _tool("submit_allocation_adjustment",
+                   "Applies an allocation adjustment to the portfolio.",
+                   {"readOnlyHint": False})
+    assert capability_cap(reader, writer) == 0.45
+    # same declared class -> no cap, whatever the verbs say
+    reader2 = _tool("fetch_allocation", "Fetch current allocation.", {"readOnlyHint": True})
+    assert capability_cap(reader, reader2) is None
+    # both writes, destructiveness declared and differing -> soft cap
+    arch = _tool("archive_record", "Archive a record for good.",
+                 {"readOnlyHint": False, "destructiveHint": True})
+    upd = _tool("update_record", "Update a record in place.",
+                {"readOnlyHint": False, "destructiveHint": False})
+    assert capability_cap(arch, upd) == 0.50
+    # destructiveness undeclared on one side -> no destructive refinement
+    upd2 = _tool("set_record", "Set a record.", {"readOnlyHint": False})
+    assert capability_cap(arch, upd2) is None
+    # TIER 2 — annotations missing on one side: verb fallback still fires
+    plain_get = _tool("get_invoice", "Fetch an invoice by its ID.")
+    plain_create = _tool("create_invoice", "Create a new invoice for an order.")
+    assert capability_cap(plain_get, plain_create) == 0.45
+    # TIER 3 — neither annotations nor classifiable verbs: no cap
+    rec = _tool("recommend_alloc", "Recommends the optimal allocation.")
+    sub = _tool("apply_alloc", "Applies an allocation adjustment.")
+    assert capability_cap(rec, sub) is None
+
+
+def test_tool_equivalence_applies_annotation_cap():
+    from app.similarity import tool_equivalence
+
+    class TopicalStub:                                   # loves topical overlap
+        def score_pairs(self, q, c): return [5.0 for _ in c]
+
+    reader = _tool("get_allocation_recommendation",
+                   "Recommends the optimal allocation for a portfolio.",
+                   {"readOnlyHint": True})
+    writer = _tool("submit_allocation_adjustment",
+                   "Applies an allocation adjustment to the portfolio.",
+                   {"readOnlyHint": False})
+    assert tool_equivalence(TopicalStub(), reader, writer) == 0.45   # capped despite ~99% model score
+    # and the serialized record carries the declared effect for the reranker
+    from app.similarity import serialize_tool
+    assert "read-only" in serialize_tool(reader)
+    assert "modifies state" in serialize_tool(writer)
+
+
+def test_explain_nudges_missing_annotations(client):
+    import asyncio as _a  # noqa: F401
+    from app.similarity import explain_pair
+    a = _tool("get_invoice", "Fetch an invoice by its customer id.")
+    b = _tool("fetch_invoice", "Fetch an invoice by customer id.")
+    ex = explain_pair(a, b)
+    assert any(r["field"] == "annotations" for r in ex["recommendations"])
+    # both annotated -> no nudge
+    a2 = _tool("get_invoice", "Fetch an invoice by its customer id.", {"readOnlyHint": True})
+    b2 = _tool("fetch_invoice", "Fetch an invoice by customer id.", {"readOnlyHint": True})
+    ex = explain_pair(a2, b2)
+    assert not any(r["field"] == "annotations" for r in ex["recommendations"])

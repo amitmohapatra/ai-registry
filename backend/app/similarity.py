@@ -155,6 +155,10 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
         recs.append({"field": "parameters", "severity": "medium",
                      "message": f"Both expose parameters: {', '.join(shared_params)}. If they serve "
                                 "the same need, consider one shared tool with audiences instead."})
+    if desc_sim >= 0.5 and (declared_effect(a) is None or declared_effect(b) is None):
+        recs.append({"field": "annotations", "severity": "info",
+                     "message": "Set behavior hints (Read-only / Destructive) on both tools "
+                                "to make this capability comparison exact instead of inferred."})
     if not recs:
         recs.append({"field": "overall", "severity": "info",
                      "message": "Overlap is moderate; likely acceptable as separate tools."})
@@ -256,6 +260,40 @@ def action_class(text: str) -> Optional[str]:
     return None
 
 
+def declared_effect(payload: dict) -> Optional[str]:
+    """Effect class from EXPLICIT MCP annotations — declared semantics, correct by
+    construction (the OWL-S effect-matching / HTTP safe-method model). Absent
+    annotations return None: absence is never treated as false."""
+    ann = payload.get("annotations") or {}
+    if "readOnlyHint" not in ann:
+        return None
+    if ann["readOnlyHint"] is True:
+        return "read"
+    if ann.get("destructiveHint") is True:
+        return "destructive"
+    if "destructiveHint" in ann:
+        return "write"          # explicitly declared non-destructive write
+    return "write?"             # a write; destructiveness undeclared
+
+
+def capability_cap(a: dict, b: dict) -> Optional[float]:
+    """Different capabilities cannot be duplicates, whatever the topic overlap.
+    Precedence: declared annotations (tier 1) -> verb-class inference from the
+    descriptions (tier 2 fallback) -> None (reranker score stands)."""
+    ea, eb = declared_effect(a), declared_effect(b)
+    if ea and eb:
+        if ("read" in (ea, eb)) and ea != eb:
+            return 0.45                      # read vs any write: distinct, hard cap
+        if {ea, eb} == {"destructive", "write"}:
+            return 0.50                      # both write, destructiveness differs: at-threshold cap
+        return None                          # same declared class: no cap
+    ca = action_class(desc_text_of(a))
+    cb = action_class(desc_text_of(b))
+    if ca and cb and ca != cb:
+        return 0.45
+    return None
+
+
 def serialize_tool(payload: dict) -> str:
     """Ditto-style record serialization: the WHOLE tool (name, title, description,
     parameters with types + descriptions) as one annotated text, so the matcher
@@ -265,6 +303,12 @@ def serialize_tool(payload: dict) -> str:
     if title and title != payload.get("name"):
         parts.append(f"title: {title}")
     parts.append(f"does: {payload.get('description', '')}")
+    effect = declared_effect(payload)
+    if effect:
+        parts.append({"read": "effect: read-only, changes nothing",
+                      "destructive": "effect: destructive state change",
+                      "write": "effect: modifies state",
+                      "write?": "effect: modifies state"}[effect])
     for ov in (payload.get("audiences") or {}).values():
         d = (ov.get("overrides") or {}).get("description")
         if d:
@@ -298,9 +342,9 @@ def tool_equivalence(rr: "Reranker", a_payload: dict, b_payload: dict) -> Option
     score = (fwd[0] + bwd[0]) / 2
     if _jaccard(a_ser, b_ser) >= 0.8:
         score = max(score, 0.9)
-    ca, cb = action_class(a_desc), action_class(b_desc)
-    if ca and cb and ca != cb:
-        score = min(score, 0.45)
+    cap = capability_cap(a_payload, b_payload)
+    if cap is not None:
+        score = min(score, cap)
     return round(score, 4)
 
 
