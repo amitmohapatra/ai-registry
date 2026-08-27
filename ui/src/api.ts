@@ -73,6 +73,7 @@ export const api = {
   apiKeys: (pk: string) => req<ApiKey[]>('GET', `/v1/products/${pk}/api-keys`),
   createApiKey: (pk: string) => req<ApiKey>('POST', `/v1/products/${pk}/api-keys`),
   revokeApiKey: (pk: string, id: string) => req<void>('DELETE', `/v1/products/${pk}/api-keys/${id}`),
+  revealApiKey: (pk: string) => req<{ plaintext: string; prefix: string }>('GET', `/v1/products/${pk}/api-keys/reveal`),
   channel: (pk: string) => req<{ redis_url: string; channel_prefix: string }>('GET', `/v1/products/${pk}/channel`),
   setChannel: (pk: string, c: any) => req<void>('PUT', `/v1/products/${pk}/channel`, c),
   entities: (pk: string, type = '') => req<Entity[]>('GET', `/v1/products/${pk}/entities${type ? `?type=${type}` : ''}`),

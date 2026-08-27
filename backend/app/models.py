@@ -69,7 +69,8 @@ class ApiKey(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
     product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     name: Mapped[str] = mapped_column(String(100), default="default")
-    key_hash: Mapped[str] = mapped_column(String(64), index=True)   # sha256 hex
+    key_hash: Mapped[str] = mapped_column(String(64), index=True)   # sha256 hex (auth check)
+    secret_enc: Mapped[str] = mapped_column(Text, default="")       # encrypted plaintext (copy/reveal)
     prefix: Mapped[str] = mapped_column(String(12))                 # display hint
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

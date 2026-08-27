@@ -108,7 +108,10 @@ export default function ToolEditor() {
         <div className="row">
           <button onClick={() => nav(`/p/${productKey}`)}>Back</button>
           {canEdit
-            ? <button className="primary" onClick={save} disabled={errors.length > 0 || !payload.name}>
+            ? <button className="primary" onClick={save}
+                disabled={errors.length > 0 || !payload.name || !payload.description?.trim()}
+                title={!payload.name || !payload.description?.trim()
+                  ? 'Name and description are required' : undefined}>
                 {isNew ? 'Create tool' : 'Save & publish'}</button>
             : <span className="pill user">read-only</span>}
         </div>
@@ -126,16 +129,17 @@ export default function ToolEditor() {
             {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
         ))}
       </div>
-      <div className="grid2">
-        <div>
-          {tab === 'base' ? (
-            <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
-              matches={matches} setPayload={setPayload} />
-          ) : (
-            <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
-              basePayload={payload} setOverlay={setOverlay} errFor={errFor} />
-          )}
-          {!isNew && (
+      {tab === 'base' ? (
+        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
+          matches={matches} setPayload={setPayload}
+          preview={preview} previewTab="base" errors={errors} />
+      ) : (
+        <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
+          basePayload={payload} setOverlay={setOverlay} errFor={errFor}
+          preview={preview} errors={errors} />
+      )}
+      <SimilarPanel productKey={productKey} entityId={entityId} matches={matches} />
+      {!isNew && (
             <div className="card">
               <h2>Version history</h2>
               <table><tbody>{versions.map(v => (
@@ -153,20 +157,21 @@ export default function ToolEditor() {
                       }}>Make active</button>}</td></tr>
               ))}</tbody></table>
             </div>
-          )}
-        </div>
-        <div>
-          <SimilarPanel productKey={productKey} entityId={entityId} matches={matches} />
-          <div className="card">
-            <h2>Live preview — what each audience sees</h2>
-            <p className="muted">Rendered by the same validate+resolve pipeline as Save, so it cannot lie.</p>
-            <div className="preview">{preview
-              ? JSON.stringify(tab === 'base' ? preview : { [tab]: preview[tab] }, null, 2)
-              : errors.length ? '⚠ fix the errors to see the preview' : '…'}</div>
-          </div>
-        </div>
-      </div>
+      )}
     </>
+  )
+}
+
+/* live preview panel — rendered on demand next to the editor controls */
+function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; errors: any[] }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <p className="muted" style={{ margin: '0 0 6px' }}>What each audience sees — rendered by the
+        same validate+resolve pipeline as Save, so it cannot lie.</p>
+      <div className="preview">{preview
+        ? JSON.stringify(tab === 'base' ? preview : { [tab]: preview[tab] }, null, 2)
+        : errors.length ? '⚠ fix the errors to see the preview' : '…'}</div>
+    </div>
   )
 }
 
@@ -187,7 +192,7 @@ function SimilarPanel({ productKey, entityId, matches }:
       setDetail(d => ({ ...d, [m.id]: matches.top_explain }))
     } else if (entityId) {
       const ex = await api.explainPair(productKey, entityId, m.id).catch(() => null)
-      setDetail(d => ({ ...d, [m.id]: ex }))
+      setDetail(d => ({ ...d, [m.id]: ex ?? { failed: true } }))
     }
   }
 
@@ -207,7 +212,8 @@ function SimilarPanel({ productKey, entityId, matches }:
           const ex = detail[m.id]
           rows.push(
             <tr key={m.id + 'x'}><td colSpan={3} style={{ background: '#f8f9fa' }}>
-              {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span> : <div>
+              {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span>
+                : ex.failed ? <span className="muted">Couldn't load this comparison.</span> : <div>
                 {ex.subscores && <div className="row" style={{ gap: 18 }}>
                   {Object.entries(ex.subscores).map(([k, v]: [string, any]) => (
                     <span key={k} className="muted">{k}: <b className="score">{Math.round(v * 100)}%</b></span>))}
@@ -231,8 +237,9 @@ function SimilarPanel({ productKey, entityId, matches }:
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors }: any) {
   const [jsonMode, setJsonMode] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   const th = matches?.threshold ?? 0.5
@@ -240,11 +247,11 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload }: any) 
   const flagged = top && top.score >= th
   return (
     <div className="card">
-      <label>Tool name {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
+      <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
       <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
       <label>Title</label>
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
-      <label>Description (what the model reads — the most important field)</label>
+      <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
@@ -258,6 +265,8 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload }: any) 
           if (!jsonMode) setJsonText(JSON.stringify(payload.input_schema, null, 2))
           setJsonErr(''); setJsonMode(!jsonMode)
         }}>{jsonMode ? 'Back to form' : 'Paste / edit JSON'}</button>
+        <button className="small" onClick={() => setShowPreview(v => !v)}>
+          {showPreview ? 'Hide preview' : 'Live preview'}</button>
       </div>
       {jsonMode ? (
         <>
@@ -288,6 +297,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload }: any) 
         <SchemaTree schema={payload.input_schema}
           mutate={fn => setSchema((s: any) => { fn(s); return s })} />
       )}
+      {showPreview && <PreviewPanel preview={preview} tab="base" errors={errors} />}
 
       <label>Behavior hints (MCP annotations — help clients decide when a tool needs confirmation)</label>
       <div className="row">
@@ -318,7 +328,8 @@ const TYPE_DEFAULTS: Record<string, any> = {
 }
 const ALL_TYPES = Object.keys(TYPE_DEFAULTS)
 
-function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor }: any) {
+function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, preview, errors }: any) {
+  const [showPreview, setShowPreview] = useState(false)
   const ov = overlay.overrides ?? {}
   const pOps = ov.parameters ?? {}
   const enabled = overlay.enabled !== false
@@ -347,7 +358,10 @@ function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor }:
           if (!ovJsonMode) setOvJsonText(JSON.stringify(overlay, null, 2))
           setOvJsonErr(''); setOvJsonMode(!ovJsonMode)
         }}>{ovJsonMode ? 'Back to form' : 'Paste / edit JSON'}</button>
+        <button className="small" onClick={() => setShowPreview(v => !v)}>
+          {showPreview ? 'Hide preview' : 'Live preview'}</button>
       </div>
+      {showPreview && <PreviewPanel preview={preview} tab={aud} errors={errors} />}
       {ovJsonMode ? (
         <>
           <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 240 }}

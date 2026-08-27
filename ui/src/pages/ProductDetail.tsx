@@ -8,6 +8,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
   const [product, setProduct] = useState<Product | null>(null)
   const [tab, setTab] = useState('tools')
+  const [audBump, setAudBump] = useState(0)
   useEffect(() => { api.product(productKey).then(setProduct) }, [productKey])
   if (!product) return null
   const canEdit = product.role === 'admin' || product.role === 'super_admin'
@@ -26,8 +27,9 @@ export default function ProductDetail({ me }: { me: User | null }) {
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
       {tab === 'manage' && <>
         <Members productKey={productKey} canEdit={canEdit} />
-        <Audiences productKey={productKey} canEdit={canEdit} />
-        <AudienceAccess productKey={productKey} canEdit={canEdit} />
+        <Audiences productKey={productKey} canEdit={canEdit}
+          onChanged={() => setAudBump(b => b + 1)} />
+        <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />
         <SimilaritySettings productKey={productKey} canEdit={canEdit} />
         <Settings productKey={productKey} me={me} canEdit={canEdit} />
         <Audit productKey={productKey} />
@@ -45,8 +47,9 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
   const [q, setQ] = useState('')
   const [showOverlaps, setShowOverlaps] = useState(false)
   const topRef = useRef<HTMLDivElement>(null)
+  const [loaded, setLoaded] = useState(false)
   const load = () => api.entitiesPaged(productKey, { type, q, limit: PAGE, offset: page * PAGE })
-    .then(r => { setItems(r.items); setTotal(r.total) })
+    .then(r => { setItems(r.items); setTotal(r.total); setLoaded(true) })
   useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t) },
     [productKey, type, q, page])
   const remove = async (e: Entity) => {
@@ -79,7 +82,8 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
               onConfirm={() => remove(e)} />}</td>
           </tr>
         ))}
-        {items.length === 0 && <tr><td colSpan={5} className="muted">
+        {!loaded && <tr><td colSpan={5} className="muted">Loading…</td></tr>}
+        {loaded && items.length === 0 && <tr><td colSpan={5} className="muted">
           {q ? `No ${type}s matching "${q}".` : 'Nothing here yet.'}</td></tr>}
         </tbody>
       </table>
@@ -96,29 +100,25 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
 
 function Duplicates({ productKey }: { productKey: string }) {
   const [scope, setScope] = useState('all')
-  const [threshold, setThreshold] = useState(0)
   const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
   const [open, setOpen] = useState<string>('')
-  const [explain, setExplain] = useState<any>(null)
-  useEffect(() => { api.duplicates(productKey, scope, threshold || undefined).then(setReport) }, [productKey, scope, threshold])
+  const [explain, setExplain] = useState<any>('idle')
+  useEffect(() => { setReport(null); api.duplicates(productKey, scope).then(setReport) }, [productKey, scope])
   const pct = (s: number) => `${Math.round(s * 100)}%`
   const toggle = async (p: any) => {
     const key = p.a.id + p.b.id
-    if (open === key) { setOpen(''); setExplain(null); return }
-    setOpen(key); setExplain(null)
-    setExplain(await api.explainPair(productKey, p.a.id, p.b.id).catch(() => null))
+    if (open === key) { setOpen(''); setExplain('idle'); return }
+    setOpen(key); setExplain('loading')
+    const ex = await api.explainPair(productKey, p.a.id, p.b.id).catch(() => null)
+    setExplain(ex ?? 'error')
   }
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Overlapping tools</h2>
         <div className="row">
-          <select style={{ width: 200 }} value={threshold} onChange={e => setThreshold(Number(e.target.value))}>
-            <option value={0}>Similarity ≥ default (80%)</option>
-            <option value={0.9}>≥ 90% — near-identical</option>
-            <option value={0.65}>≥ 65% — likely overlap</option>
-            <option value={0.5}>≥ 50% — exploratory</option>
-          </select>
+          {report && <span className="muted">flagging ≥ {pct(report.threshold)} — adjust in
+            Manage → Similarity</span>}
           <select style={{ width: 200 }} value={scope} onChange={e => setScope(e.target.value)}>
             <option value="all">Across all products</option>
             <option value="product">Within this product</option>
@@ -138,8 +138,10 @@ function Duplicates({ productKey }: { productKey: string }) {
                 <span className="muted" style={{ marginLeft: 8 }}>{open === key ? '▾' : '▸'}</span></td>
             </tr>)]
           if (open === key) rows.push(
-            <tr key={key + 'x'}><td colSpan={4} style={{ background: '#fafbfc' }}>
-              {!explain ? <span className="muted">Analyzing…</span> : <div>
+            <tr key={key + 'x'}><td colSpan={4} style={{ background: '#f8f9fa' }}>
+              {explain === 'loading' ? <span className="muted">Analyzing…</span>
+                : explain === 'error' ? <span className="muted">Couldn't load this comparison.</span>
+                : <div>
                 <div className="row" style={{ gap: 20 }}>
                   {Object.entries(explain.subscores).map(([k, v]: [string, any]) => (
                     <span key={k} className="muted">{k}: <b className="score">{pct(v)}</b></span>))}
@@ -157,7 +159,8 @@ function Duplicates({ productKey }: { productKey: string }) {
             </td></tr>)
           return rows
         })}
-        {(report?.pairs ?? []).length === 0 && <tr><td colSpan={4} className="muted">No overlapping pairs at this similarity level. 🎉</td></tr>}
+        {report === null && <tr><td colSpan={4} className="muted">Analyzing all pairs…</td></tr>}
+        {report !== null && report.pairs.length === 0 && <tr><td colSpan={4} className="muted">No overlapping pairs at this similarity level. 🎉</td></tr>}
         </tbody>
       </table>
     </div>
@@ -203,14 +206,20 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
   )
 }
 
-function Audiences({ productKey, canEdit }: { productKey: string; canEdit: boolean }) {
-  const [audiences, setAudiences] = useState<Audience[]>([])
+function Audiences({ productKey, canEdit, onChanged }:
+  { productKey: string; canEdit: boolean; onChanged?: () => void }) {
+  const [audiences, setAudiences] = useState<Audience[] | null>(null)
   const [key, setKey] = useState(''); const [err, setErr] = useState('')
   const load = () => api.audiences(productKey).then(setAudiences)
   useEffect(() => { load() }, [productKey])
   const add = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
-    try { await api.addAudience(productKey, { key }); setKey(''); load() }
+    try {
+      const created = await api.addAudience(productKey, { key })
+      setKey('')
+      setAudiences(a => [...(a ?? []), created])   // instant, no refetch wait
+      onChanged?.()
+    }
     catch (ex: any) { setErr(String(ex.detail ?? 'Failed — lowercase key, e.g. internal')) }
   }
   return (
@@ -220,13 +229,16 @@ function Audiences({ productKey, canEdit }: { productKey: string; canEdit: boole
         when their credentials carry the <code>audience:&lt;key&gt;</code> scope. Everyone else gets the default.</p>
       <table>
         <thead><tr><th>Key</th><th>Name</th><th>Default</th><th /></tr></thead>
-        <tbody>{audiences.map(a => (
+        <tbody>{audiences === null
+          ? <tr><td colSpan={4} className="muted">Loading…</td></tr>
+          : audiences.map(a => (
           <tr key={a.id}><td className="score">{a.key}</td><td>{a.display_name}</td>
             <td>{a.is_default ? <span className="pill on">default</span> : ''}</td>
             <td>{canEdit && !a.is_default &&
               <ConfirmButton icon label="Delete audience (removes its overrides from all tools)"
                 confirmLabel="Delete?" onConfirm={async () => {
-                  await api.deleteAudience(productKey, a.key); toast(`Audience ${a.key} deleted`); load()
+                  await api.deleteAudience(productKey, a.key); toast(`Audience ${a.key} deleted`)
+                  setAudiences(x => (x ?? []).filter(y => y.id !== a.id)); onChanged?.()
                 }} />}</td></tr>
         ))}</tbody>
       </table>
@@ -274,6 +286,11 @@ function Settings({ productKey, me, canEdit }: { productKey: string; me: User | 
                 {active
                   ? <span>Active key: <b className="score">{active.prefix}…</b> <span className="pill on">active</span></span>
                   : <span className="muted">No active key — issue one to connect an MCP server.</span>}
+                {active && <button className="small" onClick={async () => {
+                  const r = await api.revealApiKey(productKey).catch(() => null)
+                  if (!r) { toast('No copyable key — regenerate once'); return }
+                  navigator.clipboard.writeText(r.plaintext); toast('API key copied to clipboard')
+                }}>Copy</button>}
                 {active
                   ? <ConfirmButton label="Regenerate" confirmLabel="Replace key?"
                       title="The current key stops working immediately"
@@ -309,14 +326,15 @@ function Settings({ productKey, me, canEdit }: { productKey: string; me: User | 
   )
 }
 
-function AudienceAccess({ productKey, canEdit }: { productKey: string; canEdit: boolean }) {
-  const [entities, setEntities] = useState<Entity[]>([])
+function AudienceAccess({ productKey, canEdit, refresh = 0 }:
+  { productKey: string; canEdit: boolean; refresh?: number }) {
+  const [entities, setEntities] = useState<Entity[] | null>(null)
   const [audiences, setAudiences] = useState<Audience[]>([])
   const load = () => {
     api.entities(productKey).then(setEntities)
     api.audiences(productKey).then(setAudiences)
   }
-  useEffect(() => { load() }, [productKey])
+  useEffect(() => { load() }, [productKey, refresh])
   const isEnabled = (e: Entity, aud: string) => e.payload.audiences?.[aud]?.enabled !== false
   const toggle = async (e: Entity, aud: string, on: boolean) => {
     const payload = structuredClone(e.payload)
@@ -326,17 +344,19 @@ function AudienceAccess({ productKey, canEdit }: { productKey: string; canEdit: 
     toast(`${e.name}: ${aud} ${on ? 'enabled' : 'disabled'} — live servers updated`)
     load()
   }
-  if (!entities.length) return null
   return (
     <div className="card">
       <h2>Audience access</h2>
+      {entities === null && <p className="muted">Loading…</p>}
+      {entities !== null && entities.length === 0 && <p className="muted">No tools yet.</p>}
+      {entities !== null && entities.length > 0 && <>
       <p className="muted">Decide which tools each audience can see and call. Content overrides
         (descriptions, parameters) are edited on each tool's audience tabs; every change here
         publishes instantly and is versioned.</p>
       <table>
         <thead><tr><th>Tool</th>{audiences.map(a =>
           <th key={a.id} style={{ textAlign: 'center' }}>{a.key}{a.is_default ? ' *' : ''}</th>)}</tr></thead>
-        <tbody>{entities.map(e => (
+        <tbody>{(entities ?? []).map(e => (
           <tr key={e.id}>
             <td><b className="score">{e.name}</b> <span className="muted">v{e.version}</span></td>
             {audiences.map(a => (
@@ -350,7 +370,7 @@ function AudienceAccess({ productKey, canEdit }: { productKey: string; canEdit: 
         ))}</tbody>
       </table>
       <p className="muted" style={{ marginTop: 8 }}>* default audience — served to unauthenticated
-        and unentitled callers.</p>
+        and unentitled callers.</p></>}
     </div>
   )
 }

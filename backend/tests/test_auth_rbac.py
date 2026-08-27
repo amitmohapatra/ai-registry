@@ -208,3 +208,22 @@ async def test_product_hard_delete_frees_key_and_cleans_up(client):
                      json={"email": "alice@co.com", "role": "admin"}, headers=su)
     alice = await login(client, "alice@co.com", "secret1")
     assert (await client.delete("/v1/products/billing", headers=alice)).status_code == 403
+
+
+async def test_api_key_reveal_for_copy(client):
+    su = await login(client)
+    await make_product(client, su, "billing")
+    created = (await client.post("/v1/products/billing/api-keys", headers=su)).json()
+    revealed = (await client.get("/v1/products/billing/api-keys/reveal", headers=su)).json()
+    assert revealed["plaintext"] == created["plaintext"]          # copy works any time
+    # the revealed key actually authenticates
+    r = await client.get("/v1/products/billing/manifest",
+                         headers={"X-API-Key": revealed["plaintext"]})
+    assert r.status_code == 200
+    # read-only members cannot reveal
+    await make_user(client, su, "bob@co.com")
+    await client.put("/v1/products/billing/members",
+                     json={"email": "bob@co.com", "role": "user"}, headers=su)
+    bob = await login(client, "bob@co.com", "secret1")
+    assert (await client.get("/v1/products/billing/api-keys/reveal",
+                             headers=bob)).status_code == 403

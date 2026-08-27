@@ -11,7 +11,7 @@ from ..deps import require_member, require_product_admin
 from ..models import Entity
 from ..services import audit, embedder
 from ..similarity import apply_rerank, embed_text_of, explain_pair, name_similarity, rank
-from .entities import _candidates, _get_entity
+from .entities import _candidates
 
 router = APIRouter(prefix="/v1/products/{product_key}", tags=["ai"])
 
@@ -95,10 +95,10 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
 @router.get("/entities/{entity_id}/explain/{other_id}")
 async def explain(entity_id: str, other_id: str, ctx: tuple = Depends(require_member),
                   db: AsyncSession = Depends(get_session)):
-    product, _, _ = ctx
-    a = await _get_entity(db, product.id, entity_id)
-    b = await db.get(Entity, other_id)             # may live in another product
-    if not b or b.is_deleted:
-        raise HTTPException(404, "Other entity not found")
+    _ = ctx                                        # membership on the current product
+    a = await db.get(Entity, entity_id)            # either side may live in another
+    b = await db.get(Entity, other_id)             # product (cross-product reports)
+    if not a or a.is_deleted or not b or b.is_deleted:
+        raise HTTPException(404, "Entity not found")
     return {"a": {"id": a.id, "name": a.name}, "b": {"id": b.id, "name": b.name},
             **explain_pair(a.payload, b.payload)}

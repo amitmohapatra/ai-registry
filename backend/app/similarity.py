@@ -235,11 +235,13 @@ def _jaccard(a: str, b: str) -> float:
 
 _ACTION_CLASSES = {
     "read":   {"get", "fetch", "retrieve", "list", "search", "find", "query", "view",
-               "show", "read", "lookup", "download", "check"},
+               "show", "read", "lookup", "look", "download", "check", "preview",
+               "recommend", "suggest", "estimate", "calculate", "compute", "inspect",
+               "describe", "count"},
     "create": {"create", "add", "new", "register", "generate", "make", "submit",
                "insert", "upload", "issue", "open"},
     "update": {"update", "modify", "edit", "set", "change", "adjust", "patch",
-               "rename", "enable", "disable"},
+               "rename", "enable", "disable", "apply", "assign"},
     "delete": {"delete", "remove", "erase", "cancel", "purge", "void", "revoke",
                "archive", "close"},
     "send":   {"send", "notify", "email", "push", "dispatch", "publish", "forward"},
@@ -287,11 +289,19 @@ def capability_cap(a: dict, b: dict) -> Optional[float]:
         if {ea, eb} == {"destructive", "write"}:
             return 0.50                      # both write, destructiveness differs: at-threshold cap
         return None                          # same declared class: no cap
-    ca = action_class(desc_text_of(a))
-    cb = action_class(desc_text_of(b))
+    ca = inferred_class(a)
+    cb = inferred_class(b)
     if ca and cb and ca != cb:
         return 0.45
     return None
+
+
+def inferred_class(payload: dict) -> Optional[str]:
+    """Verb class from the description, falling back to the tool NAME
+    (get_payment_status -> 'get' -> read) when the description's verbs are
+    outside the lexicon."""
+    return (action_class(desc_text_of(payload))
+            or action_class(payload.get("name", "").replace("_", " ")))
 
 
 def serialize_tool(payload: dict) -> str:

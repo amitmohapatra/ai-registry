@@ -204,12 +204,26 @@ async def create_key(ctx: tuple = Depends(require_product_admin),
     for k in actives:
         k.revoked = True
     plaintext, digest, prefix = new_api_key()
-    key = ApiKey(product_id=product.id, name="default", key_hash=digest, prefix=prefix)
+    key = ApiKey(product_id=product.id, name="default", key_hash=digest, prefix=prefix,
+                 secret_enc=encrypt_json({"key": plaintext}))
     db.add(key)
     await db.commit()
     await audit(db, actor, "apikey.rotate" if actives else "apikey.create",
                 prefix, product.id, {"revoked": [k.prefix for k in actives]})
     return ApiKeyCreated(id=key.id, name=key.name, prefix=prefix, revoked=False, plaintext=plaintext)
+
+
+@router.get("/{product_key}/api-keys/reveal")
+async def reveal_key(ctx: tuple = Depends(require_product_admin),
+                     db: AsyncSession = Depends(get_session)):
+    """Product admins can copy the ACTIVE key any time (stored encrypted at rest)."""
+    product, actor, _ = ctx
+    key = (await db.execute(select(ApiKey).where(
+        ApiKey.product_id == product.id, ApiKey.revoked == False))).scalars().first()  # noqa: E712
+    if not key or not key.secret_enc:
+        raise HTTPException(404, "No copyable active key — regenerate to create one")
+    await audit(db, actor, "apikey.reveal", key.prefix, product.id)
+    return {"plaintext": decrypt_json(key.secret_enc).get("key", ""), "prefix": key.prefix}
 
 
 @router.get("/{product_key}/api-keys", response_model=list[ApiKeyOut])

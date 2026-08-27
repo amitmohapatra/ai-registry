@@ -218,10 +218,14 @@ def test_capability_ladder_precedence():
     plain_get = _tool("get_invoice", "Fetch an invoice by its ID.")
     plain_create = _tool("create_invoice", "Create a new invoice for an order.")
     assert capability_cap(plain_get, plain_create) == 0.45
-    # TIER 3 — neither annotations nor classifiable verbs: no cap
-    rec = _tool("recommend_alloc", "Recommends the optimal allocation.")
-    sub = _tool("apply_alloc", "Applies an allocation adjustment.")
-    assert capability_cap(rec, sub) is None
+    # TIER 2b — name fallback: description verbs unclassifiable, name decides
+    charge = _tool("charge_card", "Charge a stored card for an amount.")
+    status = _tool("get_payment_status", "Look up the settlement status of a payment.")
+    assert capability_cap(charge, status) == 0.45
+    # TIER 3 — neither annotations nor classifiable verbs anywhere: no cap
+    syn = _tool("alloc_engine", "Synthesizes the optimal allocation strategy.")
+    exe = _tool("alloc_executor", "Executes an allocation strategy change.")
+    assert capability_cap(syn, exe) is None
 
 
 def test_tool_equivalence_applies_annotation_cap():
