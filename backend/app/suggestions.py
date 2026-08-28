@@ -84,19 +84,28 @@ def suggest_names(draft: dict, other: dict, product_key: str,
 
     def consider(candidate: str):
         c = candidate.strip("_")
+        toks = c.lower().split("_")
         if (c and c.lower() != current.lower() and c.lower() not in taken_l
-                and _NAME_RE.match(c) and c not in out):
+                and _NAME_RE.match(c) and c not in out
+                and len(toks) == len(set(toks))):   # never payments_..._payments
             out.append(c)
 
     pk = product_key.replace("-", "_")
-    base = _object_part(current)
+    # names that already carry the product scope must not get it twice
+    core = "_".join(t for t in current.replace("-", "_").split("_") if t != pk)
+    base = "_".join(t for t in _object_part(core).split("_") if t != pk)
     consider(f"{pk}_{base}")          # payments_invoice_details
-    consider(f"{pk}_{current}")       # payments_retrieve_invoice_details
+    consider(f"{pk}_{core}")          # payments_retrieve_invoice_details
     consider(f"{base}_{pk}")          # invoice_details_payments
-    parts = current.split("_")
-    if len(parts) > 1:
-        consider("_".join(parts[1:] + parts[:1]))
     return out[:3]
+
+
+def scoped_title(name: str, product_key: str) -> str:
+    """payments_invoice_details -> 'Invoice details (Payments)' — a readable
+    phrase with the ownership scope as a parenthetical, not word soup."""
+    pk = product_key.replace("-", "_")
+    core = [t for t in name.replace("-", "_").split("_") if t and t != pk]
+    return f"{humanize('_'.join(core))} ({product_key.capitalize()})"
 
 
 def description_tip(draft: dict, other: dict) -> Optional[str]:
@@ -281,11 +290,13 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
 
     raw_names = []
     if name_collision:
+        # no name-similarity pre-filter: the worst-case OVERALL prediction on
+        # each package is the real guard, and a pre-filter here can strand a
+        # polluted draft with no rename candidates at all
         for n in suggest_names(draft, other, product_key, taken):
-            if name_similarity(n, other_name) > current_sim:
-                continue                          # must not be MORE name-alike
-            raw_names.append({"name": n, "title": humanize(n),
-                              "new_overall": predicted({"name": n, "title": humanize(n)})})
+            ti = scoped_title(n, product_key)
+            raw_names.append({"name": n, "title": ti,
+                              "new_overall": predicted({"name": n, "title": ti})})
     names = pick(raw_names)
 
     cur_title = draft.get("title") or humanize(draft.get("name", ""))

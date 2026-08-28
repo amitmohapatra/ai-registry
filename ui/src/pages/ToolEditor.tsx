@@ -299,10 +299,11 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
             </span>
           )}
           {matches.suggestions?.packages?.length ? (
-            <div className="resolve-card">
+            <div className={`resolve-card ${checking ? 'rechecking' : ''}`}>
               <div className="resolve-head">
                 <span className="dot green" /> Pick a resolution
                 <span className="muted" style={{ fontWeight: 400 }}> — meaning unchanged, verified against every product</span>
+                {checking && <span className="rescore"><span className="spin" /> re-scoring…</span>}
               </div>
               {matches.suggestions.packages.map((p: any, i: number) => (
                 <div key={i}>
@@ -321,9 +322,11 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                         ? <span className="delta ok">{Math.round(p.new_overall * 100)}% ✓</span>
                         : <span className="delta part">{Math.round(p.new_overall * 100)}%</span>}
                     </span>
-                    <button className="icon-act" title="Apply name, title and description" aria-label={`Apply option ${i + 1}`}
+                    <button className="icon-act" disabled={checking}
+                      title={checking ? 'Re-scoring — one moment' : 'Apply name, title and description'}
+                      aria-label={`Apply option ${i + 1}`}
                       onClick={() => { set({ name: p.name, title: p.title, description: p.description })
-                        toast('Applied — review and Save & publish') }}>✓</button>
+                        toast('Applied — re-scoring against every product…') }}>✓</button>
                   </div>
                   {showResDesc === i && <div className="resolve-desc">{p.description}</div>}
                 </div>
