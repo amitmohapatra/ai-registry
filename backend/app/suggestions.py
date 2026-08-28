@@ -34,8 +34,13 @@ def humanize(name: str) -> str:
 
 
 def _distinct_tokens(draft: dict, other: dict) -> List[str]:
-    """Informative words that make the draft different from the lookalike —
-    drawn from its description and parameter names."""
+    """Informative words that make the draft different from the lookalike.
+    Candidates come from the description and parameter names (lexical filter);
+    the RANKING is semantic when the neural reranker is available: each word is
+    scored by the cross-encoder against the other tool's text and the words
+    FARTHEST from its meaning rank first — 'customer paid' is lexically absent
+    from 'payment state' but semantically right next to it, and a purely
+    lexical picker cannot see that. Fallback: salience (repeated words first)."""
     other_text = (desc_text_of(other) + " " + other.get("name", "").replace("_", " ")).lower()
     other_tokens = set(_TOKEN.findall(other_text))
     mine: List[str] = []
@@ -48,9 +53,15 @@ def _distinct_tokens(draft: dict, other: dict) -> List[str]:
                 if t not in counts:
                     mine.append(t)
                 counts[t] = counts.get(t, 0) + 1
-    # salience first: a word the description keeps coming back to ("customer",
-    # "refund") beats whatever generic word happened to appear earliest
-    return sorted(mine, key=lambda t: (-counts[t], mine.index(t)))
+    by_salience = sorted(mine, key=lambda t: (-counts[t], mine.index(t)))
+    rr = reranker()
+    if not by_salience or isinstance(rr, NoopReranker):
+        return by_salience
+    try:
+        sims = rr.score_pairs(desc_text_of(other), by_salience)
+        return [t for _, t in sorted(zip(sims, by_salience), key=lambda x: x[0])]
+    except Exception:
+        return by_salience
 
 
 def suggest_names(draft: dict, other: dict, product_key: str,

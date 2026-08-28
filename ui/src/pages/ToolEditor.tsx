@@ -345,10 +345,32 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 const all = [...(matches.suggestions?.names ?? []), ...(matches.suggestions?.titles ?? []),
                              ...(matches.suggestions?.descriptions ?? [])]
                 const anyFix = all.some((o: any) => o.new_overall != null && o.new_overall < th)
+                const bundle = matches.suggestions?.bundle
                 return <div className="sugg-head">{anyFix
                   ? <>Verified fixes — every green option drops the match under your {Math.round(th * 100)}% threshold, checked against every nearby tool</>
-                  : <>No single field gets below {Math.round(th * 100)}% on its own — these are the best available; the combined fix below is verified where shown</>}</div>
+                  : bundle
+                    ? <>One verified fix found — it changes name and description together. The rows further down adjust one field at a time and are only partial steps.</>
+                    : <>Partial improvements only — nothing verified to clear {Math.round(th * 100)}% yet; use the template below to add what makes this tool different.</>}</div>
               })()}
+              {matches.suggestions?.bundle && (
+            <div className="bundle-row">
+              <span className="dot green" />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b>Combined fix</b> — rename to <b className="score">{matches.suggestions.bundle.name}</b> and
+                replace the description (shown on hover)
+                <span className="sugg-outcome" style={{ marginLeft: 8 }}
+                  title={matches.suggestions.bundle.description}>
+                  <s className="muted">{Math.round(top.score * 100)}%</s>
+                  <span className="sugg-arrow">→</span>
+                  <span className="delta ok">{Math.round(matches.suggestions.bundle.new_overall * 100)}% ✓ fixes it</span>
+                </span>
+              </span>
+              <button className="icon-act" title="Apply name, title and description together" aria-label="Apply combined fix"
+                onClick={() => set({ name: matches.suggestions!.bundle!.name,
+                  title: matches.suggestions!.bundle!.title,
+                  description: matches.suggestions!.bundle!.description })}>✓</button>
+            </div>
+          )}
               {matches.suggestions?.names?.length ? (
                 <SuggGroup label="Name" current={top.score} threshold={th} options={matches.suggestions.names.map((o: any) => ({
                   text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,
@@ -369,25 +391,6 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
               ) : null}
             </div>
           ) : null}
-          {matches.suggestions?.bundle && (
-            <div className="bundle-row">
-              <span className="dot green" />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <b>Combined fix</b> — rename to <b className="score">{matches.suggestions.bundle.name}</b> and
-                replace the description (shown on hover)
-                <span className="sugg-outcome" style={{ marginLeft: 8 }}
-                  title={matches.suggestions.bundle.description}>
-                  <s className="muted">{Math.round(top.score * 100)}%</s>
-                  <span className="sugg-arrow">→</span>
-                  <span className="delta ok">{Math.round(matches.suggestions.bundle.new_overall * 100)}% ✓ fixes it</span>
-                </span>
-              </span>
-              <button className="icon-act" title="Apply name, title and description together" aria-label="Apply combined fix"
-                onClick={() => set({ name: matches.suggestions!.bundle!.name,
-                  title: matches.suggestions!.bundle!.title,
-                  description: matches.suggestions!.bundle!.description })}>✓</button>
-            </div>
-          )}
           {matches.suggestions?.template && (
             <div className="template-box">
               <div className="sugg-label" style={{ marginBottom: 4 }}>Write it yourself</div>
