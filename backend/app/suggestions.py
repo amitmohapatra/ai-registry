@@ -6,7 +6,7 @@ instead' is always safe to click."""
 import re
 from typing import List, Optional, Set
 
-from .similarity import blend_breakdown, desc_text_of, name_similarity, reranker
+from .similarity import NoopReranker, blend_breakdown, desc_text_of, name_similarity, reranker
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -83,9 +83,10 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     description gets an applyable differentiator sentence — the field that
     actually moves the number."""
     rr = reranker()
+    neural = not isinstance(rr, NoopReranker)
     other_name = other.get("name", "")
     current_sim = name_similarity(draft.get("name", ""), other_name)
-    current_overall = blend_breakdown(rr, draft, other)["overall"]
+    current_overall = blend_breakdown(rr, draft, other)["overall"] if neural else None
     names = []
     if name_collision:
         for n in suggest_names(draft, other, product_key, taken):
@@ -93,7 +94,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                 continue
             renamed = {**draft, "name": n, "title": humanize(n)}
             new_overall = blend_breakdown(rr, renamed, other)["overall"]
-            if new_overall > current_overall - 0.02:
+            if neural and new_overall > current_overall - 0.02:
                 continue                    # a rename that doesn't help is noise
             names.append({"name": n, "title": humanize(n),
                           "new_overall": round(new_overall, 2)})
