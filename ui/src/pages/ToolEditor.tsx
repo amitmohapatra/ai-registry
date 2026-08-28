@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: { text: string; new_overall?: number } | null; description_tip: string; resolution_hint?: string | null; fix?: { name: string; title: string; description: string; validated_max: number; checked_against: number } | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null }[]; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -39,6 +39,7 @@ export default function ToolEditor() {
   const [matches, setMatches] = useState<Matches | null>(null)
   const [checking, setChecking] = useState(false)
   const [savedPayload, setSavedPayload] = useState<any>(null)
+  const [savedMatches, setSavedMatches] = useState<Matches | null>(null)
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
   const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
@@ -51,6 +52,9 @@ export default function ToolEditor() {
       api.entity(productKey, entityId).then(e => {
         setSavedPayload(e.payload); setVersion(e.version)
         setPayload(stored ? JSON.parse(stored) : e.payload)   // unsaved edits survive navigation
+        api.similarPreview(productKey, { type: 'tool',
+          payload: { ...e.payload, _entity_id: entityId } })
+          .then(setSavedMatches).catch(() => {})              // panel shows PUBLISHED state
       })
       api.versions(productKey, entityId).then(setVersions)
     } else if (stored) {
@@ -109,6 +113,9 @@ export default function ToolEditor() {
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
         sessionStorage.removeItem(draftKey); setSavedPayload(payload)
+        api.similarPreview(productKey, { type: 'tool',
+          payload: { ...payload, _entity_id: entityId } })
+          .then(setSavedMatches).catch(() => {})              // published -> panel updates now
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
         api.versions(productKey, entityId!).then(setVersions)
@@ -161,9 +168,7 @@ export default function ToolEditor() {
           basePayload={payload} setOverlay={setOverlay} errFor={errFor}
           preview={preview} errors={errors} />
       )}
-      <SimilarPanel entityId={entityId} matches={matches}
-        dirty={!isNew && savedPayload !== null &&
-               JSON.stringify(payload) !== JSON.stringify(savedPayload)} />
+      {!isNew && <SimilarPanel entityId={entityId} matches={savedMatches} />}
       {!isNew && (
             <div className="card">
               <h2>Version history</h2>
@@ -201,13 +206,17 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
 }
 
 /* ---------- similar tools: expandable rows, same experience as Check overlaps ---------- */
-function SimilarPanel({ entityId, matches, dirty }:
-  { entityId?: string; matches: Matches | null; dirty?: boolean }) {
+function SimilarPanel({ entityId, matches }:
+  { entityId?: string; matches: Matches | null }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<Record<string, any>>({})
   const th = matches?.threshold ?? 0.5
-  const visible = (matches?.matches ?? []).filter(m => m.score >= th * 0.6)
-  if (!matches || visible.length === 0) return null
+  const visible = (matches?.matches ?? []).filter(m => m.score >= th)
+  if (!matches) return null
+  if (visible.length === 0) return (
+    <div className="card"><h2>Similar tools <span className="muted">(as published)</span></h2>
+      <p className="muted">No similar tools at or above your {Math.round(th * 100)}% threshold. ✓</p></div>
+  )
 
   const toggle = (m: Similar) => {
     if (open === m.id) { setOpen(''); return }
@@ -221,14 +230,13 @@ function SimilarPanel({ entityId, matches, dirty }:
 
   return (
     <div className="card">
-      <h2>Similar tools <span className="muted">(live, across all products{dirty ? ' — reflecting your unsaved edits; the overlap page shows the saved version' : ''})</span></h2>
+      <h2>Similar tools <span className="muted">(as published — updates when you save; the warning above tracks your draft live)</span></h2>
       <table><tbody>{visible.slice(0, 5).flatMap(m => {
         const rows = [(
           <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
             <td><b className="score">{m.product_key}/{m.name}</b></td>
             <td><b className="score">{Math.round(m.score * 100)}%</b></td>
-            <td>{m.score >= th ? <span className="pill off">above threshold</span>
-              : m.score >= th * 0.7 ? <span className="pill aud">related</span> : null}
+            <td><span className="pill off">above threshold</span>
               <span className="muted" style={{ marginLeft: 8 }}>{open === m.id ? '▾' : '▸'}</span></td>
           </tr>)]
         if (open === m.id) {
@@ -284,52 +292,50 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 ))}
             </span>
           )}
-          {matches.suggestions?.fix && (
-            <div className="sugg-row">
-              <span className="sugg-label">Fix</span>
-              <button className="primary small"
-                title={`name: ${matches.suggestions.fix.name}\ntitle: ${matches.suggestions.fix.title}\ndescription: ${matches.suggestions.fix.description}`}
-                onClick={() => { const f = matches.suggestions!.fix!
-                  set({ name: f.name, title: f.title, description: f.description }) }}>
-                Apply verified fix → {Math.round(matches.suggestions.fix.validated_max * 100)}%
-              </button>
-              <span className="muted" style={{ fontWeight: 400 }}>
-                checked against {matches.suggestions.fix.checked_against} tools across all products</span>
-            </div>
-          )}
           {matches.suggestions?.names?.length ? (
             <div className="sugg-row">
               <span className="sugg-label">Name</span>
               <span style={{ fontWeight: 400 }}>
-                {matches.suggestions.names.map((s: { name: string; title: string; new_overall: number }) => (
+                {matches.suggestions.names.map((s: { name: string; title: string; new_overall: number | null }) => (
                   <button key={s.name} className="small chip" style={{ marginRight: 6 }}
-                    title={`Rename to "${s.name}" (title "${s.title}") — overall match becomes ~${Math.round(s.new_overall * 100)}%`}
+                    title={`Rename to "${s.name}" (title "${s.title}")${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
                     onClick={() => set({ name: s.name, title: s.title })}>
-                    {s.name} → {Math.round(s.new_overall * 100)}%</button>
+                    {s.name}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
                 ))}
               </span>
             </div>
           ) : null}
-          {matches.suggestions?.title_suggestion && (
+          {matches.suggestions?.titles?.length ? (
             <div className="sugg-row">
               <span className="sugg-label">Title</span>
-              <button className="small chip" title={matches.suggestions.title_suggestion}
-                onClick={() => set({ title: matches.suggestions!.title_suggestion })}>
-                {matches.suggestions.title_suggestion}</button>
+              <span style={{ fontWeight: 400 }}>
+                {matches.suggestions.titles.map((s: { title: string; new_overall: number | null }) => (
+                  <button key={s.title} className="small chip" style={{ marginRight: 6 }}
+                    title={`${s.title}${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
+                    onClick={() => set({ title: s.title })}>
+                    {s.title}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
+                ))}
+              </span>
             </div>
-          )}
-          {matches.suggestions?.description_suggestion && (
+          ) : null}
+          {matches.suggestions?.descriptions?.length ? (
             <div className="sugg-row">
               <span className="sugg-label">Description</span>
-              <button className="small chip" style={{ maxWidth: 520 }}
-                title={`${matches.suggestions.description_suggestion.text}${matches.suggestions.description_suggestion.new_overall != null ? ` — overall becomes ~${Math.round(matches.suggestions.description_suggestion.new_overall * 100)}%` : ''}`}
-                onClick={() => set({ description: matches.suggestions!.description_suggestion!.text })}>
-                {matches.suggestions.description_suggestion.text}
-                {matches.suggestions.description_suggestion.new_overall != null &&
-                  <> → {Math.round(matches.suggestions.description_suggestion.new_overall * 100)}%</>}
-              </button>
+              <span style={{ fontWeight: 400 }}>
+                {matches.suggestions.descriptions.map((s: { text: string; new_overall: number | null }) => (
+                  <button key={s.text} className="small chip" style={{ maxWidth: 460, marginRight: 6, marginBottom: 4 }}
+                    title={`${s.text}${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
+                    onClick={() => set({ description: s.text })}>
+                    {s.text}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
+                ))}
+              </span>
             </div>
-          )}
+          ) : matches.suggestions?.description_tip ? (
+            <div className="sugg-row">
+              <span className="sugg-label">Description</span>
+              <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span>
+            </div>
+          ) : null}
           {matches.suggestions?.resolution_hint && (
             <div className="sugg-row">
               <span className="sugg-label">To resolve</span>

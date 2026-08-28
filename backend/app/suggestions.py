@@ -87,105 +87,87 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
     main_param = (params[0].replace("_", " ") if params else "identifier")
     out = []
     if len(d) >= 2:
-        out.append(f"{d[0].capitalize()} {d[1]} lookup for {product_key}: returns the "
-                   f"{d[0]} {d[1]} record matching a given {main_param}.")
-        out.append(f"Look up the {d[0]} {d[1]} held in {product_key} for a specific "
-                   f"{main_param}; no other record types are returned.")
+        anchor = f"{d[0]} {d[1]}"
     elif d:
-        out.append(f"{d[0].capitalize()} lookup for {product_key}: returns the {d[0]} "
-                   f"record matching a given {main_param}.")
+        anchor = d[0]
+    else:
+        return []
+    out.append(f"{anchor.capitalize()} lookup for {product_key}: returns the "
+               f"{anchor} record matching a given {main_param}.")
+    out.append(f"Look up the {anchor} held in {product_key} for a specific "
+               f"{main_param}; no other record types are returned.")
+    out.append(f"Given a {main_param}, returns {product_key}'s {anchor} record "
+               f"for it — scoped to {product_key} data only.")
     return out
-
-
-def build_fix_bundle(draft: dict, others: List[dict], product_key: str,
-                     taken: Set[str], threshold: float) -> Optional[dict]:
-    """Generate-and-TEST: propose name+title+description combinations and only
-    return one whose blended match is verified below the threshold against
-    EVERY provided tool (all products). No unverified promises."""
-    rr = reranker()
-    if isinstance(rr, NoopReranker) or not others:
-        return None
-    top = others[0]
-    name_opts = [draft.get("name", "")] + suggest_names(draft, top, product_key, taken)[:1]
-    desc_opts = _rewrite_candidates(draft, top, product_key)
-    best = None
-    for desc in desc_opts:
-        for name in name_opts:
-            candidate = {**draft, "name": name, "title": humanize(name),
-                         "description": desc}
-            worst = max(blend_breakdown(rr, candidate, o)["overall"] for o in others)
-            if worst < threshold - 0.02 and (best is None or worst < best["validated_max"]):
-                best = {"name": name, "title": humanize(name), "description": desc,
-                        "validated_max": round(worst, 2), "checked_against": len(others)}
-        if best and best["name"] == draft.get("name", ""):
-            break                                    # minimal change wins
-    return best
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool,
                       threshold: float = 0.5) -> dict:
-    """Per-section recommendations, honestly scored: each rename shows the
-    predicted OVERALL match (recomputed with the real scorer), and the
-    description gets an applyable differentiator sentence — the field that
-    actually moves the number."""
+    """2-3 pickable options per field (name / title / description), each with the
+    PREDICTED overall match after applying just that option — computed with the
+    real scorer, offered only when it genuinely improves things."""
     rr = reranker()
     neural = not isinstance(rr, NoopReranker)
     other_name = other.get("name", "")
     current_sim = name_similarity(draft.get("name", ""), other_name)
     current_overall = blend_breakdown(rr, draft, other)["overall"] if neural else None
+
+    def predicted(patch: dict) -> Optional[float]:
+        if not neural:
+            return None
+        return round(blend_breakdown(rr, {**draft, **patch}, other)["overall"], 2)
+
+    def improving(options):
+        # Never offer an option that makes the match WORSE; within that, rank by
+        # predicted overall (best first). The visible "-> X%" on each chip is the
+        # honesty mechanism — a rename that only gets to 78% shows exactly that.
+        if not neural:
+            return options[:3]
+        kept = [o for o in options if o["new_overall"] is not None
+                and o["new_overall"] <= round(current_overall, 2)]
+        return sorted(kept, key=lambda o: o["new_overall"])[:3]
+
     names = []
     if name_collision:
         for n in suggest_names(draft, other, product_key, taken):
-            if name_similarity(n, other_name) >= current_sim - 0.1:
-                continue
-            renamed = {**draft, "name": n, "title": humanize(n)}
-            new_overall = blend_breakdown(rr, renamed, other)["overall"]
-            if neural and new_overall > current_overall - 0.02:
-                continue                    # a rename that doesn't help is noise
+            if name_similarity(n, other_name) > current_sim:
+                continue                          # must not be MORE name-alike
             names.append({"name": n, "title": humanize(n),
-                          "new_overall": round(new_overall, 2)})
-    title_suggestion = None
-    if names:
-        title_suggestion = names[0]["title"]
-    elif (d := _distinct_tokens(draft, other)):
-        title_suggestion = f"{humanize(draft.get('name', ''))} ({d[0]})"
-    distinct = _distinct_tokens(draft, other)
-    description_suggestion = None
-    desc_now = draft.get("description", "")
-    already_differentiated = f"Unlike {other_name}" in desc_now
-    if distinct and not already_differentiated:          # idempotent: never re-append
-        text = (f"{desc_now.rstrip('. ')}. Unlike {other_name}, this is specifically "
-                f"about {', '.join(distinct[:3])}.")
-        entry = {"text": text}
-        if neural:
-            pred = blend_breakdown(rr, {**draft, "description": text}, other)["overall"]
-            entry["new_overall"] = round(pred, 2)
-            if pred >= threshold:                         # would NOT resolve -> don't offer
-                entry = None
-        description_suggestion = entry
+                          "new_overall": predicted({"name": n, "title": humanize(n)})})
+    names = improving(names)
 
-    # nothing we can offer gets below the threshold -> say what WOULD resolve it
+    d = _distinct_tokens(draft, other)
+    title_texts = [humanize(n["name"]) for n in names]
+    if d:
+        title_texts.append(f"{humanize(draft.get('name', ''))} ({d[0]})")
+        if len(d) > 1:
+            title_texts.append(f"{d[0].capitalize()} {d[1]} — {humanize(draft.get('name', ''))}")
+    titles = improving([{"title": t, "new_overall": predicted({"title": t})}
+                        for t in dict.fromkeys(title_texts) if t != draft.get("title")])
+
+    descriptions = improving([{"text": t, "new_overall": predicted({"description": t})}
+                              for t in _rewrite_candidates(draft, other, product_key)])
+
     resolution_hint = None
     if neural and current_overall is not None and current_overall >= threshold:
-        best_offer = min([n["new_overall"] for n in names]
-                         + ([description_suggestion["new_overall"]]
-                            if description_suggestion and "new_overall" in description_suggestion
-                            else []) + [1.0])
-        if best_offer >= threshold:
+        best = min([o["new_overall"] for o in names + titles]
+                   + [o["new_overall"] for o in descriptions] + [1.0])
+        if best >= threshold:
             bd = blend_breakdown(rr, draft, other)
             top_field = max(bd["contributions"], key=lambda f: bd["contributions"][f])
             resolution_hint = (
-                f"None of the quick fixes get this below {round(threshold*100)}% — the "
+                f"None of the suggestions get this below {round(threshold*100)}% — the "
                 f"remaining overlap is mostly in the {top_field}. If these really are "
                 f"different tools, change the {top_field} to say something {other_name} "
                 f"doesn't. If they do the same thing, reuse {other_name} instead of "
                 f"creating a near-duplicate.")
+
     return {
         "names": names,
+        "titles": titles,
+        "descriptions": descriptions,
         "current_name_match": round(current_sim, 2),
-        "title_suggestion": title_suggestion,
-        "description_suggestion": description_suggestion,
-        "description_tip": description_tip(draft, other),
+        "description_tip": None if descriptions else description_tip(draft, other),
         "resolution_hint": resolution_hint,
     }

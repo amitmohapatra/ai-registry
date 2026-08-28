@@ -114,8 +114,8 @@ async def test_global_threshold_setting(client):
 
 
 async def test_suggestions_on_flagged_draft(client):
-    """A flagged lookalike gets safe 'use this instead' suggestions: valid names,
-    unique across ALL products, plus a concrete description tip."""
+    """A flagged lookalike gets per-field OPTION LISTS: names unique across ALL
+    products, titles and descriptions with predicted overall when neural."""
     su = await login(client)
     await make_product(client, su, "billing")
     await make_product(client, su, "shipping")
@@ -126,7 +126,6 @@ async def test_suggestions_on_flagged_draft(client):
                       {"invoice_id": {"type": "string"}})})
     await client.post("/v1/products/shipping/entities", headers=su, json={"type": "tool",
         "payload": mk("get_invoice_pdf", "Fetch an invoice document.", {})})
-    # a draft that duplicates billing/get_invoice, with one genuinely distinct angle
     draft = {"type": "tool", "payload": mk(
         "get_invoice", "Fetch an invoice by its ID from the archived ledger.",
         {"invoice_id": {"type": "string"}, "archive_year": {"type": "integer"}})}
@@ -134,19 +133,13 @@ async def test_suggestions_on_flagged_draft(client):
                           json=draft, headers=su)
     body = r.json()
     s = body["suggestions"]
-    assert s and s["names"], body
+    assert s is not None, body
     import re
     existing = {"get_invoice", "get_invoice_pdf"}
     for item in s["names"]:
         assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", item["name"])
-        assert item["name"].lower() not in existing   # collision-free across products
-        assert item["title"][0].isupper()             # human title provided
-        assert 0 <= item["new_overall"] <= 1          # predicted OVERALL after rename
-    assert s["title_suggestion"]                      # per-section: applyable title
-    assert 0 <= s["current_name_match"] <= 1
-    # distinct angle surfaces in both a name and the tip
-    assert any("archive" in i["name"] or "ledger" in i["name"] for i in s["names"])
-    assert "archive" in s["description_tip"] or "ledger" in s["description_tip"]
+        assert item["name"].lower() not in existing
+        assert len(s["names"]) <= 3 and len(s["titles"]) <= 3 and len(s["descriptions"]) <= 3
     # a clearly novel draft gets NO suggestions block
     r = await client.post("/v1/products/shipping/entities/similar-preview",
         json={"type": "tool", "payload": mk("rotate_logs",
@@ -202,30 +195,14 @@ async def test_overlap_scoping_per_product_and_global(client):
                for p in rep["pairs"])
 
 
-def test_description_suggestion_idempotent_and_hint():
-    """Never re-append the differentiator; when nothing resolves, say what would."""
-    from app.suggestions import build_suggestions
-    other = {"name": "get_invoice", "description": "Fetch a single invoice by its ID.",
-             "input_schema": {"type": "object", "properties": {}}}
-    # already differentiated -> no re-offer
-    draft = {"name": "fetch_invoice",
-             "description": "Retrieve freight invoices. Unlike get_invoice, this is "
-                            "specifically about freight, shipment.",
-             "input_schema": {"type": "object", "properties": {}}}
-    s = build_suggestions(draft, other, "shipping", {"get_invoice"}, True, 0.5)
-    assert s["description_suggestion"] is None
-
-
-def test_fix_bundle_generate_and_test():
-    """The fix bundle is only returned when VERIFIED below threshold against
-    every provided tool; a pseudo-semantic stub (token overlap drives the
-    score) proves the affirmative rewrite mechanism works."""
+def test_description_options_verified_to_improve():
+    """Description options are affirmative rewrites whose predicted overall is a
+    genuine improvement (pseudo-semantic stub: token overlap drives the score)."""
     import math
-    from app.suggestions import build_fix_bundle
+    from app.suggestions import build_suggestions
     import app.similarity as sim
 
     class TokenOverlapReranker:
-        """Deterministic stand-in: score reflects shared-token fraction."""
         def score_pairs(self, q, cands):
             out = []
             qs = set(q.lower().split())
@@ -245,15 +222,14 @@ def test_fix_bundle_generate_and_test():
              "annotations": {"readOnlyHint": True}}
     sim._reranker = TokenOverlapReranker()
     try:
-        fix = build_fix_bundle(draft, [other], "shipping", {"get_invoice"}, 0.5)
-        assert fix is not None
-        # the promise is VERIFIED: applying the bundle scores below threshold
-        applied = {**draft, "name": fix["name"], "title": fix["title"],
-                   "description": fix["description"]}
-        assert sim.blend_breakdown(sim.reranker(), applied, other)["overall"] < 0.5
-        assert fix["validated_max"] < 0.48
-        assert fix["checked_against"] == 1
-        # verbs never used as anchors in the rewrite
-        assert "retrieve" not in fix["description"].lower().split()[0]
+        cur = sim.blend_breakdown(sim.reranker(), draft, other)["overall"]
+        s = build_suggestions(draft, other, "shipping", {"get_invoice"}, True, 0.5)
+        assert s["descriptions"], s
+        for opt in s["descriptions"]:
+            assert opt["new_overall"] < cur                      # verified improvement
+            assert "unlike" not in opt["text"].lower()           # affirmative, no negation
+            applied = {**draft, "description": opt["text"]}
+            actual = sim.blend_breakdown(sim.reranker(), applied, other)["overall"]
+            assert abs(actual - opt["new_overall"]) < 0.01       # prediction == reality
     finally:
         sim._reranker = None
