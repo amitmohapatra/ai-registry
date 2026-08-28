@@ -172,8 +172,8 @@ export default function ToolEditor() {
       )}
       {!isNew && <SimilarPanel entityId={entityId} matches={savedMatches} />}
       {!isNew && (
-            <div className="card">
-              <h2>Version history</h2>
+            <details className="card collapsible">
+              <summary><h2>Version history <span className="muted">({versions.length} version{versions.length === 1 ? '' : 's'} — click to expand)</span></h2></summary>
               <table><tbody>{versions.map(v => (
                 <tr key={v.version}><td className="score">v{v.version}</td>
                   <td className="muted">{v.note || '—'}</td>
@@ -188,7 +188,7 @@ export default function ToolEditor() {
                         toast(`v${v.version} is active again`)
                       }}>Make active</button>}</td></tr>
               ))}</tbody></table>
-            </div>
+            </details>
       )}
     </>
   )
@@ -216,8 +216,8 @@ function SimilarPanel({ entityId, matches }:
   const visible = (matches?.matches ?? []).filter(m => m.score >= th)
   if (!matches) return null
   if (visible.length === 0) return (
-    <div className="card"><h2>Similar tools <span className="muted">(as published)</span></h2>
-      <p className="muted">No similar tools at or above your {Math.round(th * 100)}% threshold. ✓</p></div>
+    <div className="card"><h2><span className="dot green" /> Similar tools <span className="muted">(as published)</span></h2>
+      <p className="muted">No overlaps — nothing at or above your {Math.round(th * 100)}% threshold.</p></div>
   )
 
   const toggle = (m: Similar) => {
@@ -232,7 +232,8 @@ function SimilarPanel({ entityId, matches }:
 
   return (
     <div className="card">
-      <h2>Similar tools <span className="muted">(as published — updates when you save; the warning above tracks your draft live)</span></h2>
+      <h2><span className="dot red" /> Similar tools — {visible.length} at or above {Math.round(th * 100)}%
+        <span className="muted"> (as published — updates when you save; the warning above tracks your draft live)</span></h2>
       <table><tbody>{visible.slice(0, 5).flatMap(m => {
         const rows = [(
           <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
@@ -258,22 +259,40 @@ function SimilarPanel({ entityId, matches }:
 
 type SuggOption = { text: string; hover: string; pct: number | null; apply: () => void }
 
-function SuggGroup({ label, options }: { label: string; options: SuggOption[] }) {
+/* Research-backed change display: absolute before -> after, a directional
+   delta, AND a text label (never color alone) telling the user the outcome. */
+function SuggGroup({ label, current, threshold, options }:
+  { label: string; current: number; threshold: number; options: SuggOption[] }) {
+  const P = (x: number) => `${Math.round(x * 100)}%`
   return (
     <div className="sugg-group">
       <span className="sugg-label">{label}</span>
       <div className="sugg-options">
-        {options.map(o => (
-          <div key={o.text} className="sugg-option">
-            <span className="sugg-text" title={o.hover}>{o.text}</span>
-            {o.pct != null && <span className="sugg-pct"
-              title="Overall match with the conflicting tool if you apply this">→ {Math.round(o.pct * 100)}%</span>}
-            <button className="small" onClick={o.apply}>Apply</button>
-            <button className="small ghost" title="Copy to clipboard" onClick={() => {
-              navigator.clipboard.writeText(o.text); toast('Copied')
-            }}>Copy</button>
-          </div>
-        ))}
+        {options.map(o => {
+          const deltaPts = o.pct == null ? 0 : Math.round((current - o.pct) * 100)
+          return (
+            <div key={o.text} className="sugg-option">
+              <span className="sugg-text" title={o.hover}>{o.text}</span>
+              {o.pct != null && (
+                <span className="sugg-outcome" title={deltaPts > 0
+                  ? `Reduces the match by ${deltaPts} points, from ${P(current)} to ${P(o.pct)}`
+                  : 'Would not reduce the match'}>
+                  <s className="muted">{P(current)}</s>
+                  <span className="sugg-arrow">→</span>
+                  {o.pct < threshold
+                    ? <span className="delta ok">{P(o.pct)} ✓ fixes it</span>
+                    : deltaPts >= 1
+                      ? <span className="delta part">{P(o.pct)} ↓ −{deltaPts} pts, still above {P(threshold)}</span>
+                      : <span className="delta none">{P(o.pct)} · no change</span>}
+                </span>
+              )}
+              <button className="small" onClick={o.apply}>Apply</button>
+              <button className="small ghost" title="Copy to clipboard" onClick={() => {
+                navigator.clipboard.writeText(o.text); toast('Copied')
+              }}>Copy</button>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -320,19 +339,20 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
             matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
             <div className="sugg-panel">
-              <div className="sugg-head">Suggestions — each shows the overall match it would produce</div>
+              <div className="sugg-head">Suggestions — pick any option to reduce the {Math.round(top.score * 100)}% match
+                (green = drops it below your {Math.round(th * 100)}% threshold)</div>
               {matches.suggestions?.names?.length ? (
-                <SuggGroup label="Name" options={matches.suggestions.names.map((o: any) => ({
+                <SuggGroup label="Name" current={top.score} threshold={th} options={matches.suggestions.names.map((o: any) => ({
                   text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,
                   pct: o.new_overall, apply: () => set({ name: o.name, title: o.title }) }))} />
               ) : null}
               {matches.suggestions?.titles?.length ? (
-                <SuggGroup label="Title" options={matches.suggestions.titles.map((o: any) => ({
+                <SuggGroup label="Title" current={top.score} threshold={th} options={matches.suggestions.titles.map((o: any) => ({
                   text: o.title, hover: o.title, pct: o.new_overall,
                   apply: () => set({ title: o.title }) }))} />
               ) : null}
               {matches.suggestions?.descriptions?.length ? (
-                <SuggGroup label="Description" options={matches.suggestions.descriptions.map((o: any) => ({
+                <SuggGroup label="Description" current={top.score} threshold={th} options={matches.suggestions.descriptions.map((o: any) => ({
                   text: o.text, hover: o.text, pct: o.new_overall,
                   apply: () => set({ description: o.text }) }))} />
               ) : matches.suggestions?.description_tip ? (

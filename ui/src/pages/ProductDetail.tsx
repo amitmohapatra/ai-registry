@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
@@ -8,8 +8,14 @@ export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
   const [product, setProduct] = useState<Product | null>(null)
   const [tab, setTab] = useState('tools')
+  const [dups, setDups] = useState<{ pairs: any[] } | null>(null)
   const [audBump, setAudBump] = useState(0)
   useEffect(() => { api.product(productKey).then(setProduct) }, [productKey])
+  useEffect(() => {          // light background scan drives the overlap status dots
+    setDups(null); api.duplicates(productKey, 'all').then(setDups).catch(() => {})
+  }, [productKey])
+  const overlapIds = useMemo(() =>
+    new Set((dups?.pairs ?? []).flatMap((p: any) => [p.a.id, p.b.id])), [dups])
   if (!product) return null
   const canEdit = product.role === 'admin' || product.role === 'super_admin'
   const tabs = ['tools', 'agents', 'overlaps', 'manage']
@@ -21,9 +27,15 @@ export default function ProductDetail({ me }: { me: User | null }) {
           <span className={`pill ${product.role}`}>{product.role}</span></div>
       </div>
       <div className="tabs">{tabs.map(t => (
-        <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
+        <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
+          {t[0].toUpperCase() + t.slice(1)}
+          {t === 'overlaps' && dups && (dups.pairs.length
+            ? <span className="dot red" title={`${dups.pairs.length} overlapping pair${dups.pairs.length === 1 ? '' : 's'}`} />
+            : <span className="dot green" title="No overlaps" />)}
+        </button>
       ))}</div>
-      {tab === 'tools' && <Entities productKey={productKey} type="tool" canEdit={canEdit} />}
+      {tab === 'tools' && <Entities productKey={productKey} type="tool" canEdit={canEdit}
+        overlapIds={dups ? overlapIds : null} />}
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
       {tab === 'overlaps' && <Duplicates productKey={productKey} />}
       {tab === 'manage' && <>
@@ -41,7 +53,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
 
 const PAGE = 25
 
-function Entities({ productKey, type, canEdit }: { productKey: string; type: string; canEdit: boolean }) {
+function Entities({ productKey, type, canEdit, overlapIds }: { productKey: string; type: string; canEdit: boolean; overlapIds?: Set<string> | null }) {
   const [items, setItems] = useState<Entity[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
@@ -72,6 +84,9 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
         <tbody>{items.map(e => (
           <tr key={e.id}>
             <td>
+              {type === 'tool' && overlapIds != null && (overlapIds.has(e.id)
+                ? <span className="dot red" title="Overlaps with another tool — see the Overlaps tab" />
+                : <span className="dot green" title="No overlaps above the threshold" />)}
               {type === 'tool'
                 ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link>
                 : <b className="score">{e.name}</b>}
