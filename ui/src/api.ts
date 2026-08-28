@@ -93,7 +93,6 @@ export const api = {
   dryRun: (pk: string, e: any) => req<{ valid: boolean; errors: ValidationErr[]; resolved: any }>('POST', `/v1/products/${pk}/entities/dry-run`, e),
   versions: (pk: string, id: string) => req<any[]>('GET', `/v1/products/${pk}/entities/${id}/versions`),
   rollback: (pk: string, id: string, v: number) => req<Entity>('POST', `/v1/products/${pk}/entities/${id}/rollback/${v}`),
-  similar: (pk: string, id: string, scope: string) => req<Similar[]>('GET', `/v1/products/${pk}/entities/${id}/similar?scope=${scope}`),
   duplicates: (pk: string, scope: string, threshold?: number) => req<{ threshold: number; pairs: any[] }>('GET', `/v1/products/${pk}/entities/reports/duplicates?scope=${scope}${threshold ? `&threshold=${threshold}` : ''}`),
   audit: (pk: string) => req<any[]>('GET', `/v1/products/${pk}/audit`),
   similarPreview: (pk: string, draft: any) => req<{ matches: Similar[]; top_explain: any; threshold?: number; suggestions?: { names: { name: string; title: string; new_match: number }[]; title_tip?: string | null; description_tip: string } | null }>('POST', `/v1/products/${pk}/entities/similar-preview`, draft),
