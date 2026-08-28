@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,7 +199,8 @@ async def _candidates(db: AsyncSession, scope_product_id: str = "") -> list:
         await db.commit()
     return [{"id": e.id, "product_id": e.product_id, "product_key": pkey,
              "type": e.type, "name": e.name, "text": embed_text_of(e.payload),
-             "payload": e.payload, "vec": e.embedding} for e, pkey in rows]
+             "payload": e.payload, "vec": e.embedding,
+             "v": e.version} for e, pkey in rows]
 
 
 @router.get("/{entity_id}/similar", response_model=list[SimilarOut])
@@ -225,12 +228,19 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
     """Shared report builder. within_product_id: both sides in that product.
     involving_key: at least one side in that product. Neither: whole registry."""
     from .ai import product_threshold
+    from .ai import _score_gate
     cands = await _candidates(db, within_product_id)
     th = threshold or await product_threshold(db)
-    # cosine casts a wide net (lower floor), the field-blend gives the final say
-    pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
-    pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
-    pairs = [p for p in pairs if p["score"] >= th]
+
+    def _scan():
+        # cosine casts a wide net (lower floor), the field-blend gives the final say
+        pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
+        pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
+        return [p for p in pairs if p["score"] >= th]
+
+    await db.close()          # release the pooled connection during CPU work
+    async with _score_gate:                        # CPU work off the event loop
+        pairs = await asyncio.to_thread(_scan)
     if involving_key:
         pairs = [p for p in pairs
                  if involving_key in (p["a"]["product_key"], p["b"]["product_key"])]

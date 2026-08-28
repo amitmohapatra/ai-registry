@@ -71,8 +71,9 @@ class FastEmbedProvider(EmbeddingProvider):
     name = "fastembed-minilm"
 
     def __init__(self, model: str = "BAAI/bge-base-en-v1.5"):
+        import os
         from fastembed import TextEmbedding
-        self._model = TextEmbedding(model)
+        self._model = TextEmbedding(model, threads=max(2, (os.cpu_count() or 4) // 2))
         self.name = f"fastembed:{model}"
 
     async def embed(self, texts):

@@ -348,7 +348,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         if deep:
             desc_pool.insert(0, deep)
         desc_pool = list(dict.fromkeys(desc_pool))[:3]
-        name_pool = ([(o["name"], o["title"]) for o in raw_names[:3]]
+        name_pool = ([(o["name"], o["title"]) for o in raw_names[:2]]
                      or [(draft.get("name", ""), draft.get("title") or humanize(draft.get("name", "")))])
         for nm, ti in name_pool:
             for dc in desc_pool:

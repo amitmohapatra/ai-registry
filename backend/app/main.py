@@ -35,6 +35,18 @@ async def bootstrap():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await bootstrap()
+
+    def _warm_models():
+        # load + JIT the scoring models off the event loop so the first
+        # similarity preview doesn't pay model-init inside a user request
+        try:
+            from .similarity import reranker
+            reranker().score_pairs("warmup", ["warmup"])
+        except Exception:
+            pass
+
+    import threading
+    threading.Thread(target=_warm_models, daemon=True).start()
     yield
 
 

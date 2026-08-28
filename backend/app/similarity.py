@@ -1,6 +1,7 @@
 """Hybrid semantic + lexical similarity with reciprocal-rank fusion.
 Brute-force cosine via numpy — exact and sub-ms at registry scale (<=100k rows).
 Swap for a pgvector VectorStore implementation without touching callers."""
+import os
 import re
 from typing import Dict, List, Optional
 
@@ -224,7 +225,9 @@ class FastEmbedReranker(Reranker):
         from collections import OrderedDict
 
         from fastembed.rerank.cross_encoder import TextCrossEncoder
-        self._model = TextCrossEncoder(model)
+        # cap inference threads: scoring must never starve the API event loop
+        threads = max(2, (os.cpu_count() or 4) // 2)
+        self._model = TextCrossEncoder(model, threads=threads)
         self.name = f"fastembed:{model}"
         self._cache: "OrderedDict[tuple, float]" = OrderedDict()
 
