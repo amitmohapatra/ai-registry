@@ -14,7 +14,17 @@ _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = {"a", "an", "the", "by", "for", "of", "to", "in", "on", "with", "and", "or",
          "its", "is", "it", "this", "that", "get", "set", "from", "into", "onto",
          "via", "using", "about", "over", "under", "each", "all", "any", "when",
-         "then", "than", "also", "only", "will", "your", "their"}
+         "then", "than", "also", "only", "will", "your", "their",
+         # generic filler that never distinguishes one tool from another
+         "unique", "returns", "returned", "record", "records", "result", "results",
+         "single", "complete", "current", "specific", "details", "every", "whenever",
+         "example", "answer", "question", "structured", "json", "include", "includes",
+         "including", "download", "link", "generated", "must", "already", "exist",
+         "exists", "need", "full", "tool", "tools", "data", "information", "given",
+         "which", "should", "would", "could", "them", "these", "those", "have", "has",
+         "been", "were", "more", "most", "other", "another", "such", "like", "well",
+         "just", "first", "right", "there", "here", "what", "whether", "before",
+         "after", "while", "during", "does", "unknown", "linked", "applied"}
 
 
 def humanize(name: str) -> str:
@@ -29,13 +39,18 @@ def _distinct_tokens(draft: dict, other: dict) -> List[str]:
     other_text = (desc_text_of(other) + " " + other.get("name", "").replace("_", " ")).lower()
     other_tokens = set(_TOKEN.findall(other_text))
     mine: List[str] = []
+    counts: dict = {}
     own_params = list((draft.get("input_schema") or {}).get("properties", {}))
     for source in (desc_text_of(draft), " ".join(own_params).replace("_", " ")):
         for t in _TOKEN.findall(source.lower()):
             if (len(t) > 3 and t not in _STOP and t not in other_tokens
-                    and t not in mine and not is_action_word(t)):
-                mine.append(t)
-    return mine
+                    and not is_action_word(t)):
+                if t not in counts:
+                    mine.append(t)
+                counts[t] = counts.get(t, 0) + 1
+    # salience first: a word the description keeps coming back to ("customer",
+    # "refund") beats whatever generic word happened to appear earliest
+    return sorted(mine, key=lambda t: (-counts[t], mine.index(t)))
 
 
 def suggest_names(draft: dict, other: dict, product_key: str,
