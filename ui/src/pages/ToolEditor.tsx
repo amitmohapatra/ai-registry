@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null }[]; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -234,18 +234,20 @@ function SimilarPanel({ entityId, matches }:
     <div className="card">
       <h2><span className="dot red" /> Similar tools — {visible.length} at or above {Math.round(th * 100)}%
         <span className="muted"> (as published — updates when you save; the warning above tracks your draft live)</span></h2>
-      <table><tbody>{visible.slice(0, 5).flatMap(m => {
+      <table>
+        <thead><tr><th>Tool</th><th>Similarity</th><th>Status</th><th /></tr></thead>
+        <tbody>{visible.slice(0, 5).flatMap(m => {
         const rows = [(
           <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
             <td><b className="score">{m.product_key}/{m.name}</b></td>
             <td><b className="score">{Math.round(m.score * 100)}%</b></td>
-            <td><span className="pill off">above threshold</span>
-              <span className="muted" style={{ marginLeft: 8 }}>{open === m.id ? '▾' : '▸'}</span></td>
+            <td><span className="pill off">above threshold</span></td>
+            <td className="detail-cell">{open === m.id ? '▾ Hide' : '▸ Details'}</td>
           </tr>)]
         if (open === m.id) {
           const ex = detail[m.id]
           rows.push(
-            <tr key={m.id + 'x'}><td colSpan={3} style={{ background: '#f8f9fa' }}>
+            <tr key={m.id + 'x'}><td colSpan={4} style={{ background: '#f8f9fa' }}>
               {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span>
                 : ex.failed ? <span className="muted">Couldn't load this comparison.</span>
                 : <PairBreakdown ex={ex} />}
@@ -286,10 +288,10 @@ function SuggGroup({ label, current, threshold, options }:
                       : <span className="delta none">{P(o.pct)} · no change</span>}
                 </span>
               )}
-              <button className="small" onClick={o.apply}>Apply</button>
-              <button className="small ghost" title="Copy to clipboard" onClick={() => {
-                navigator.clipboard.writeText(o.text); toast('Copied')
-              }}>Copy</button>
+              <button className="icon-act" title="Apply this suggestion" aria-label="Apply"
+                onClick={o.apply}>✓</button>
+              <button className="icon-act" title="Copy to clipboard" aria-label="Copy"
+                onClick={() => { navigator.clipboard.writeText(o.text); toast('Copied') }}>⧉</button>
             </div>
           )
         })}
@@ -339,8 +341,14 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
             matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
             <div className="sugg-panel">
-              <div className="sugg-head">Verified fixes — every option below drops the match under your {Math.round(th * 100)}% threshold,
-                checked against every nearby tool</div>
+              {(() => {
+                const all = [...(matches.suggestions?.names ?? []), ...(matches.suggestions?.titles ?? []),
+                             ...(matches.suggestions?.descriptions ?? [])]
+                const anyFix = all.some((o: any) => o.new_overall != null && o.new_overall < th)
+                return <div className="sugg-head">{anyFix
+                  ? <>Verified fixes — every green option drops the match under your {Math.round(th * 100)}% threshold, checked against every nearby tool</>
+                  : <>No single field gets below {Math.round(th * 100)}% on its own — these are the best available; the combined fix below is verified where shown</>}</div>
+              })()}
               {matches.suggestions?.names?.length ? (
                 <SuggGroup label="Name" current={top.score} threshold={th} options={matches.suggestions.names.map((o: any) => ({
                   text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,
@@ -361,6 +369,38 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
               ) : null}
             </div>
           ) : null}
+          {matches.suggestions?.bundle && (
+            <div className="bundle-row">
+              <span className="dot green" />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b>Combined fix</b> — rename to <b className="score">{matches.suggestions.bundle.name}</b> and
+                replace the description (shown on hover)
+                <span className="sugg-outcome" style={{ marginLeft: 8 }}
+                  title={matches.suggestions.bundle.description}>
+                  <s className="muted">{Math.round(top.score * 100)}%</s>
+                  <span className="sugg-arrow">→</span>
+                  <span className="delta ok">{Math.round(matches.suggestions.bundle.new_overall * 100)}% ✓ fixes it</span>
+                </span>
+              </span>
+              <button className="icon-act" title="Apply name, title and description together" aria-label="Apply combined fix"
+                onClick={() => set({ name: matches.suggestions!.bundle!.name,
+                  title: matches.suggestions!.bundle!.title,
+                  description: matches.suggestions!.bundle!.description })}>✓</button>
+            </div>
+          )}
+          {matches.suggestions?.template && (
+            <div className="template-box">
+              <div className="sugg-label" style={{ marginBottom: 4 }}>Write it yourself</div>
+              <span style={{ flex: 1, minWidth: 0 }}>Fill this frame with your facts — data source, when to use it,
+                what it never does — and the score drops:</span>
+              <div className="template-text">
+                <code>{matches.suggestions.template}</code>
+                <button className="icon-act" title="Copy template" aria-label="Copy template" onClick={() => {
+                  navigator.clipboard.writeText(matches.suggestions!.template!); toast('Copied')
+                }}>⧉</button>
+              </div>
+            </div>
+          )}
           {matches.suggestions?.resolution_hint && (
             <div className="sugg-row">
               <span className="sugg-label">To resolve</span>

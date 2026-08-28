@@ -149,10 +149,12 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool,
                       threshold: float = 0.5,
                       others: Optional[List[dict]] = None) -> dict:
-    """Up to 3 pickable options per field (name / title / description). Every
-    option is VERIFIED with the real scorer against every nearby tool (not just
-    the current top match) and offered only if its worst-case overall lands
-    below the threshold — an option we show is an option that fixes it."""
+    """Never a dead end. Preference order per field: options VERIFIED to land
+    below the threshold against every nearby tool; else the best available
+    improvements (honestly labeled). If no single field fixes it, try the
+    fields COMBINED (rename + new description together); and always leave the
+    author a concrete fill-in template plus the consolidate-or-differentiate
+    decision when the tools genuinely duplicate each other."""
     rr = reranker()
     neural = not isinstance(rr, NoopReranker)
     other_name = other.get("name", "")
@@ -168,21 +170,23 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         applied = {**draft, **patch}
         return round(max(blend_breakdown(rr, applied, o)["overall"] for o in field), 2)
 
-    def fixing(options):
+    def pick(options):
         if not neural:
             return options[:3]
-        kept = [o for o in options if o["new_overall"] is not None
-                and o["new_overall"] < threshold]
-        return sorted(kept, key=lambda o: o["new_overall"])[:3]
+        valid = [o for o in options if o["new_overall"] is not None]
+        fixes = [o for o in valid if o["new_overall"] < threshold]
+        pool = fixes or [o for o in valid if current_overall is None
+                         or o["new_overall"] < round(current_overall, 2)]
+        return sorted(pool, key=lambda o: o["new_overall"])[:3]
 
-    names = []
+    raw_names = []
     if name_collision:
         for n in suggest_names(draft, other, product_key, taken):
             if name_similarity(n, other_name) > current_sim:
                 continue                          # must not be MORE name-alike
-            names.append({"name": n, "title": humanize(n),
-                          "new_overall": predicted({"name": n, "title": humanize(n)})})
-    names = fixing(names)
+            raw_names.append({"name": n, "title": humanize(n),
+                              "new_overall": predicted({"name": n, "title": humanize(n)})})
+    names = pick(raw_names)
 
     d = _distinct_tokens(draft, other)
     title_texts = [humanize(n["name"]) for n in names]
@@ -190,29 +194,64 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         title_texts.append(f"{humanize(draft.get('name', ''))} ({d[0]})")
         if len(d) > 1:
             title_texts.append(f"{d[0].capitalize()} {d[1]} — {humanize(draft.get('name', ''))}")
-    titles = fixing([{"title": t, "new_overall": predicted({"title": t})}
-                        for t in dict.fromkeys(title_texts) if t != draft.get("title")])
+    titles = pick([{"title": t, "new_overall": predicted({"title": t})}
+                   for t in dict.fromkeys(title_texts) if t != draft.get("title")])
 
-    descriptions = fixing([{"text": t, "new_overall": predicted({"description": t})}
-                              for t in _rewrite_candidates(draft, other, product_key)])
+    raw_desc = [{"text": t, "new_overall": predicted({"description": t})}
+                for t in _rewrite_candidates(draft, other, product_key)]
+    descriptions = pick(raw_desc)
+
+    def is_fix(o):
+        return o["new_overall"] is not None and o["new_overall"] < threshold
+    any_fix = any(is_fix(o) for o in names + titles + descriptions)
+
+    # combined fix: rename + rewrite TOGETHER often clears a bar neither
+    # field can clear alone (name 15% + title 10% + description 55% of the blend)
+    bundle = None
+    if neural and not any_fix and current_overall is not None and current_overall >= threshold:
+        nm_c = [o for o in sorted((o for o in raw_names if o["new_overall"] is not None),
+                                  key=lambda o: o["new_overall"])[:2]]
+        dc_c = [o for o in sorted((o for o in raw_desc if o["new_overall"] is not None),
+                                  key=lambda o: o["new_overall"])[:2]]
+        best = None
+        for nm in (nm_c or [None]):
+            for dc in (dc_c or [None]):
+                patch = {}
+                if nm:
+                    patch.update({"name": nm["name"], "title": nm["title"]})
+                if dc:
+                    patch["description"] = dc["text"]
+                if len(patch) < 3:
+                    continue                       # combos only — singles already tried
+                p = predicted(patch)
+                if p is not None and (best is None or p < best["new_overall"]):
+                    best = {"name": patch["name"], "title": patch["title"],
+                            "description": patch["description"], "new_overall": p}
+        if best and best["new_overall"] < threshold:
+            bundle = best
+
+    # concrete frame the author can fill in — forces the distinguishing facts
+    template = None
+    if neural and not any_fix and current_overall is not None and current_overall >= threshold:
+        template = (f"{product_key.capitalize()}-owned <record type> lookup: returns "
+                    f"<exactly what it returns> from <your data source>. Use it when "
+                    f"<your situation>; for <the other situation> use {other_name}. "
+                    f"Does not <things it never does>.")
 
     resolution_hint = None
-    if (neural and current_overall is not None and current_overall >= threshold
-            and not (names or titles or descriptions)):
-        if True:
-            bd = blend_breakdown(rr, draft, other)
-            top_field = max(bd["contributions"], key=lambda f: bd["contributions"][f])
-            resolution_hint = (
-                f"None of the suggestions get this below {round(threshold*100)}% — the "
-                f"remaining overlap is mostly in the {top_field}. If these really are "
-                f"different tools, change the {top_field} to say something {other_name} "
-                f"doesn't. If they do the same thing, reuse {other_name} instead of "
-                f"creating a near-duplicate.")
+    if neural and current_overall is not None and current_overall >= threshold             and not any_fix and not bundle:
+        resolution_hint = (
+            f"Two honest paths: if this tool and {other_name} really do the same thing, "
+            f"keep {other_name} and drop this one. If they are different, the description "
+            f"must say how — fill in the template below with your data source and "
+            f"use-case and the score will drop.")
 
     return {
         "names": names,
         "titles": titles,
         "descriptions": descriptions,
+        "bundle": bundle,
+        "template": template,
         "current_name_match": round(current_sim, 2),
         "description_tip": None if descriptions else description_tip(draft, other),
         "resolution_hint": resolution_hint,

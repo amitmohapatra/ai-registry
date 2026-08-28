@@ -10,7 +10,9 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   const [products, setProducts] = useState<Product[]>([])
   const [key, setKey] = useState(''); const [name, setName] = useState('')
   const [err, setErr] = useState('')
-  const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[] } | null | 'off'>('off')
+  const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[] } | null>(null)
+  const [showPairs, setShowPairs] = useState(false)
+  useEffect(() => { api.duplicatesAll().then(setOverlaps).catch(() => {}) }, [])
   const load = () => api.products().then(setProducts)
   useEffect(() => { load() }, [])
 
@@ -55,14 +57,23 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
       </div>
       <div className="card">
         <div className="toolbar">
-          <h2>Overlaps across all products</h2>
-          <button className="small" onClick={() => {
-            if (overlaps !== 'off') { setOverlaps('off'); return }
-            setOverlaps(null); api.duplicatesAll().then(setOverlaps)
-          }}>{overlaps === 'off' ? 'Check overlaps' : 'Hide'}</button>
+          <h2>
+            {overlaps && (overlaps.pairs.length
+              ? <span className="dot red" />
+              : <span className="dot green" />)}
+            Overlaps across all products
+            <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+              {overlaps === null ? 'scanning…'
+                : overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
+                : `${overlaps.pairs.length} pair${overlaps.pairs.length === 1 ? '' : 's'} at ≥ ${Math.round(overlaps.threshold * 100)}%`}
+            </span>
+          </h2>
+          {overlaps !== null && overlaps.pairs.length > 0 &&
+            <button className="small" onClick={() => setShowPairs(v => !v)}>
+              {showPairs ? 'Hide' : 'Show'}</button>}
         </div>
-        {overlaps !== 'off' && (
-          <OverlapPairs report={overlaps === null ? null : overlaps}
+        {showPairs && overlaps !== null && overlaps.pairs.length > 0 && (
+          <OverlapPairs report={overlaps}
             explain={p => api.explainPair(p.a.product_key, p.a.id, p.b.id)} />
         )}
       </div>

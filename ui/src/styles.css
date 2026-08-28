@@ -282,3 +282,19 @@ details.collapsible summary h2 { margin: 0; }
 details.collapsible[open] summary h2 { margin-bottom: 12px; }
 details.collapsible summary h2::before { content: '▸ '; color: var(--faint); }
 details.collapsible[open] summary h2::before { content: '▾ '; }
+
+/* ---- icon action buttons (apply / copy) — same family as the info badge ---- */
+.icon-act { width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border-strong); background: #fff; color: var(--accent);
+  font-size: 13px; line-height: 1; flex-shrink: 0; }
+.icon-act:hover { border-color: var(--accent); background: #f6f9fe; }
+
+/* ---- combined fix + template ---- */
+.bundle-row { display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  padding: 10px 12px; background: #e6f4ea; border: 1px solid #c6e7cf;
+  border-radius: 8px; font-size: 13px; }
+.template-box { margin-top: 10px; padding: 10px 12px; background: #f8f9fa;
+  border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 12.5px; }
+.template-text { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.template-text code { flex: 1; font-size: 12px; background: #fff; padding: 8px 10px;
+  border-radius: 6px; border: 1px solid var(--border); line-height: 1.5; }
