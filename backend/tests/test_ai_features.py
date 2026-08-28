@@ -200,3 +200,17 @@ async def test_overlap_scoping_per_product_and_global(client):
     rep = (await client.get("/v1/reports/duplicates", headers=su)).json()
     assert any({p["a"]["name"], p["b"]["name"]} == {"send_alert", "notify_user"}
                for p in rep["pairs"])
+
+
+def test_description_suggestion_idempotent_and_hint():
+    """Never re-append the differentiator; when nothing resolves, say what would."""
+    from app.suggestions import build_suggestions
+    other = {"name": "get_invoice", "description": "Fetch a single invoice by its ID.",
+             "input_schema": {"type": "object", "properties": {}}}
+    # already differentiated -> no re-offer
+    draft = {"name": "fetch_invoice",
+             "description": "Retrieve freight invoices. Unlike get_invoice, this is "
+                            "specifically about freight, shipment.",
+             "input_schema": {"type": "object", "properties": {}}}
+    s = build_suggestions(draft, other, "shipping", {"get_invoice"}, True, 0.5)
+    assert s["description_suggestion"] is None

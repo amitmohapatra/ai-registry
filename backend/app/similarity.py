@@ -214,16 +214,41 @@ class NoopReranker(Reranker):
 
 
 class FastEmbedReranker(Reranker):
+    """Cross-encoder with an LRU pair cache: between debounced previews only one
+    field changes, so most (query, candidate) pairs repeat — cache hits turn
+    repeated similarity checks from seconds into milliseconds."""
+
+    _CACHE_CAP = 16384
+
     def __init__(self, model: str = "BAAI/bge-reranker-base"):
+        from collections import OrderedDict
+
         from fastembed.rerank.cross_encoder import TextCrossEncoder
         self._model = TextCrossEncoder(model)
         self.name = f"fastembed:{model}"
+        self._cache: "OrderedDict[tuple, float]" = OrderedDict()
 
     def score_pairs(self, query, candidates):
         if not candidates:
             return []
-        logits = list(self._model.rerank(query, candidates))
-        return [round(1.0 / (1.0 + _math.exp(-x)), 4) for x in logits]  # sigmoid -> [0,1]
+        out: list = [None] * len(candidates)
+        missing = []
+        for i, c in enumerate(candidates):
+            key = (query, c)
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                out[i] = self._cache[key]
+            else:
+                missing.append(i)
+        if missing:
+            logits = list(self._model.rerank(query, [candidates[i] for i in missing]))
+            for i, x in zip(missing, logits, strict=False):
+                score = round(1.0 / (1.0 + _math.exp(-x)), 4)   # sigmoid -> [0,1]
+                out[i] = score
+                self._cache[(query, candidates[i])] = score
+            while len(self._cache) > self._CACHE_CAP:
+                self._cache.popitem(last=False)
+        return out
 
 
 _reranker: Optional[Reranker] = None

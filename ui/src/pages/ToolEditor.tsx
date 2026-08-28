@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: string | null; description_tip: string } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: { text: string; new_overall?: number } | null; description_tip: string; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -37,17 +37,32 @@ export default function ToolEditor() {
   const [version, setVersion] = useState(0)
   const [canEdit, setCanEdit] = useState(true)
   const [matches, setMatches] = useState<Matches | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [savedPayload, setSavedPayload] = useState<any>(null)
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
+  const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
 
   useEffect(() => {
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
     api.audiences(productKey).then(a => setAudiences(a.map(x => x.key)))
+    const stored = sessionStorage.getItem(draftKey)
     if (entityId) {
-      api.entity(productKey, entityId).then(e => { setPayload(e.payload); setVersion(e.version) })
+      api.entity(productKey, entityId).then(e => {
+        setSavedPayload(e.payload); setVersion(e.version)
+        setPayload(stored ? JSON.parse(stored) : e.payload)   // unsaved edits survive navigation
+      })
       api.versions(productKey, entityId).then(setVersions)
+    } else if (stored) {
+      setPayload(JSON.parse(stored))
     }
   }, [productKey, entityId])
+
+  // persist the draft (and thereby its warnings/errors) across page changes
+  useEffect(() => {
+    if (payload.name || payload.description)
+      sessionStorage.setItem(draftKey, JSON.stringify(payload))
+  }, [payload, draftKey])
 
   // live preview — the same validate+resolve pipeline as Save
   useEffect(() => {
@@ -66,8 +81,10 @@ export default function ToolEditor() {
     window.clearTimeout(matchDebounce.current)
     if (!payload.name && !payload.description) return
     matchDebounce.current = window.setTimeout(() => {
+      setChecking(true)
       api.similarPreview(productKey, { type: 'tool',
-        payload: { ...payload, _entity_id: entityId } }).then(setMatches).catch(() => {})
+        payload: { ...payload, _entity_id: entityId } })
+        .then(setMatches).catch(() => {}).finally(() => setChecking(false))
     }, 500)
   }, [payload.name, payload.description, payload.input_schema, productKey])
 
@@ -87,9 +104,11 @@ export default function ToolEditor() {
     try {
       if (isNew) {
         const e = await api.createEntity(productKey, { type: 'tool', payload })
+        sessionStorage.removeItem(draftKey)
         nav(`/p/${productKey}/tools/${e.id}`)
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
+        sessionStorage.removeItem(draftKey); setSavedPayload(payload)
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
         api.versions(productKey, entityId!).then(setVersions)
@@ -133,7 +152,9 @@ export default function ToolEditor() {
       </div>
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
-          matches={matches} setPayload={setPayload}
+          matches={matches} setPayload={setPayload} checking={checking}
+          dirty={!isNew && savedPayload !== null &&
+                 JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
       ) : (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
@@ -224,7 +245,7 @@ function SimilarPanel({ entityId, matches }:
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [wasFlagged, setWasFlagged] = useState(false)
@@ -242,11 +263,13 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
+      {checking && !matches && <p className="muted" style={{ margin: '6px 0 0' }}>Checking similarity…</p>}
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
           <b className="score">{top.product_key}/{top.name}</b>
-          <span className="muted"> (threshold {Math.round(th * 100)}%)</span>
+          <span className="muted"> (threshold {Math.round(th * 100)}%{dirty ? ' · based on your unsaved edits — the overlap page shows the saved version' : ''})</span>
+          {checking && <span className="muted"> · rechecking…</span>}
           {(top as any).breakdown?.contributions && (
             <span style={{ marginLeft: 10, fontWeight: 400 }}>
               {['description', 'parameters', 'name', 'title']
@@ -284,9 +307,18 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
             <div className="sugg-row">
               <span className="sugg-label">Description</span>
               <button className="small chip" style={{ maxWidth: 520 }}
-                title={matches.suggestions.description_suggestion}
-                onClick={() => set({ description: matches.suggestions!.description_suggestion })}>
-                {matches.suggestions.description_suggestion}</button>
+                title={`${matches.suggestions.description_suggestion.text}${matches.suggestions.description_suggestion.new_overall != null ? ` — overall becomes ~${Math.round(matches.suggestions.description_suggestion.new_overall * 100)}%` : ''}`}
+                onClick={() => set({ description: matches.suggestions!.description_suggestion!.text })}>
+                {matches.suggestions.description_suggestion.text}
+                {matches.suggestions.description_suggestion.new_overall != null &&
+                  <> → {Math.round(matches.suggestions.description_suggestion.new_overall * 100)}%</>}
+              </button>
+            </div>
+          )}
+          {matches.suggestions?.resolution_hint && (
+            <div className="sugg-row">
+              <span className="sugg-label">To resolve</span>
+              <span style={{ fontWeight: 400 }}>{matches.suggestions.resolution_hint}</span>
             </div>
           )}
         </div>

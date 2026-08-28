@@ -77,7 +77,8 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
-                      taken: Set[str], name_collision: bool) -> dict:
+                      taken: Set[str], name_collision: bool,
+                      threshold: float = 0.5) -> dict:
     """Per-section recommendations, honestly scored: each rename shows the
     predicted OVERALL match (recomputed with the real scorer), and the
     description gets an applyable differentiator sentence — the field that
@@ -105,14 +106,40 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         title_suggestion = f"{humanize(draft.get('name', ''))} ({d[0]})"
     distinct = _distinct_tokens(draft, other)
     description_suggestion = None
-    if distinct:
-        description_suggestion = (f"{draft.get('description', '').rstrip('. ')}. "
-                                  f"Unlike {other_name}, this is specifically about "
-                                  f"{', '.join(distinct[:3])}.")
+    desc_now = draft.get("description", "")
+    already_differentiated = f"Unlike {other_name}" in desc_now
+    if distinct and not already_differentiated:          # idempotent: never re-append
+        text = (f"{desc_now.rstrip('. ')}. Unlike {other_name}, this is specifically "
+                f"about {', '.join(distinct[:3])}.")
+        entry = {"text": text}
+        if neural:
+            pred = blend_breakdown(rr, {**draft, "description": text}, other)["overall"]
+            entry["new_overall"] = round(pred, 2)
+            if pred >= threshold:                         # would NOT resolve -> don't offer
+                entry = None
+        description_suggestion = entry
+
+    # nothing we can offer gets below the threshold -> say what WOULD resolve it
+    resolution_hint = None
+    if neural and current_overall is not None and current_overall >= threshold:
+        best_offer = min([n["new_overall"] for n in names]
+                         + ([description_suggestion["new_overall"]]
+                            if description_suggestion and "new_overall" in description_suggestion
+                            else []) + [1.0])
+        if best_offer >= threshold:
+            bd = blend_breakdown(rr, draft, other)
+            top_field = max(bd["contributions"], key=lambda f: bd["contributions"][f])
+            resolution_hint = (
+                f"None of the quick fixes get this below {round(threshold*100)}% — the "
+                f"remaining overlap is mostly in the {top_field}. If these really are "
+                f"different tools, change the {top_field} to say something {other_name} "
+                f"doesn't. If they do the same thing, reuse {other_name} instead of "
+                f"creating a near-duplicate.")
     return {
         "names": names,
         "current_name_match": round(current_sim, 2),
         "title_suggestion": title_suggestion,
         "description_suggestion": description_suggestion,
         "description_tip": description_tip(draft, other),
+        "resolution_hint": resolution_hint,
     }

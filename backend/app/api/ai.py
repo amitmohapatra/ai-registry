@@ -102,7 +102,8 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                 taken = {c["name"] for c in cands} | {payload.get("name", "")}
                 suggestions = build_suggestions(
                     payload, other.payload, product.key, taken,
-                    name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold)
+                    name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold,
+                    threshold=threshold)
     return {"matches": matches, "top_explain": top_explain, "threshold": threshold,
             "suggestions": suggestions}
 
