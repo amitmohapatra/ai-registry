@@ -25,11 +25,12 @@ class SettingsIn(BaseModel):
     similarity_threshold: float = 0.5
 
 
-async def product_threshold(db: AsyncSession, product_id: str) -> float:
+async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
+    """ONE threshold for the whole registry — every surface (overlap report,
+    editor warnings, suggestions) reads this same value."""
     from ..config import get_settings
-    from ..models import ProductSettings
-    row = (await db.execute(select(ProductSettings).where(
-        ProductSettings.product_id == product_id))).scalars().first()
+    from ..models import GlobalSettings
+    row = (await db.execute(select(GlobalSettings))).scalars().first()
     if row and "similarity_threshold" in (row.data or {}):
         return float(row.data["similarity_threshold"])
     return get_settings().similarity_threshold
@@ -43,20 +44,22 @@ async def get_product_settings(ctx: tuple = Depends(require_member),
 
 
 @router.put("/settings", status_code=204)
-async def set_product_settings(body: SettingsIn, ctx: tuple = Depends(require_product_admin),
-                               db: AsyncSession = Depends(get_session)):
-    from ..models import ProductSettings
-    product, actor, _ = ctx
+async def set_settings(body: SettingsIn, ctx: tuple = Depends(require_member),
+                       db: AsyncSession = Depends(get_session)):
+    """Registry-wide: only the super admin can change it (it affects every product)."""
+    from ..models import GlobalSettings
+    product, actor, role = ctx
+    if role != "super_admin":
+        raise HTTPException(403, "Only the super admin can change the similarity threshold")
     if not (0.05 <= body.similarity_threshold <= 0.99):
         raise HTTPException(422, "similarity_threshold must be between 0.05 and 0.99")
-    row = (await db.execute(select(ProductSettings).where(
-        ProductSettings.product_id == product.id))).scalars().first()
+    row = (await db.execute(select(GlobalSettings))).scalars().first()
     if not row:
-        row = ProductSettings(product_id=product.id)
+        row = GlobalSettings(id=1)
         db.add(row)
     row.data = {**(row.data or {}), "similarity_threshold": body.similarity_threshold}
     await db.commit()
-    await audit(db, actor, "settings.set", product.key, product.id,
+    await audit(db, actor, "settings.set", "global", product.id,
                 {"similarity_threshold": body.similarity_threshold})
 
 # ---------- similarity preview (pre-save) ----------

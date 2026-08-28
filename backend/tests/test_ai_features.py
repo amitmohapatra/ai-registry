@@ -50,6 +50,9 @@ async def test_explain_pair_endpoint(client):
                          headers=su)
     body = r.json()
     assert set(body["subscores"]) == {"name", "description", "parameters"}
+    # contributions add up to the overall — the UI can show math that checks out
+    assert abs(sum(body["contributions"].values()) - body["overall"]) < 0.001
+    assert set(body["params"]) == {"a", "b"}
     assert body["shared"]["parameters"] == ["invoice_id", "max_results"]
     assert body["recommendations"]
     fields = {rec["field"] for rec in body["recommendations"]}
@@ -82,19 +85,29 @@ async def test_scores_never_negative_and_no_mirrored_pairs(client):
         assert p["score"] >= 0
 
 
-async def test_product_threshold_setting(client):
+async def test_global_threshold_setting(client):
     su = await login(client)
     await make_product(client, su, "p1")
-    # default 50%
+    await make_product(client, su, "p2")
     assert (await client.get("/v1/products/p1/settings", headers=su)).json() == \
         {"similarity_threshold": 0.5}
-    # admin can change it; duplicates report uses it as its default
+    # super admin sets it ONCE -> every product reports the same value
     r = await client.put("/v1/products/p1/settings",
                          json={"similarity_threshold": 0.7}, headers=su)
     assert r.status_code == 204
-    rep = (await client.get("/v1/products/p1/entities/reports/duplicates",
-                            headers=su)).json()
-    assert rep["threshold"] == 0.7
+    for pk in ("p1", "p2"):
+        assert (await client.get(f"/v1/products/{pk}/settings",
+                                 headers=su)).json()["similarity_threshold"] == 0.7
+        assert (await client.get(f"/v1/products/{pk}/entities/reports/duplicates",
+                                 headers=su)).json()["threshold"] == 0.7
+    # product admins cannot change a registry-wide setting
+    from .conftest import make_user
+    await make_user(client, su, "alice@co.com")
+    await client.put("/v1/products/p1/members",
+                     json={"email": "alice@co.com", "role": "admin"}, headers=su)
+    alice = await login(client, "alice@co.com", "secret1")
+    assert (await client.put("/v1/products/p1/settings",
+                             json={"similarity_threshold": 0.6}, headers=alice)).status_code == 403
     # bounds enforced
     assert (await client.put("/v1/products/p1/settings",
                              json={"similarity_threshold": 1.5}, headers=su)).status_code == 422
@@ -129,7 +142,8 @@ async def test_suggestions_on_flagged_draft(client):
         assert item["name"].lower() not in existing   # collision-free across products
         assert item["title"][0].isupper()             # human title provided
         assert 0 <= item["new_match"] < 0.9           # VALIDATED: predicted improvement
-    assert s["title_tip"]                             # per-section: title recommendation
+    assert s["title_suggestion"]                      # per-section: applyable title
+    assert 0 <= s["current_name_match"] <= 1
     # distinct angle surfaces in both a name and the tip
     assert any("archive" in i["name"] or "ledger" in i["name"] for i in s["names"])
     assert "archive" in s["description_tip"] or "ledger" in s["description_tip"]
@@ -148,3 +162,16 @@ async def test_description_tip_when_nothing_distinct(client):
          "input_schema": {"type": "object", "properties": {}}}
     tip = description_tip(a, b)
     assert "different" in tip and "get_invoice" in tip
+
+
+def test_suggestions_never_repeat_name_tokens():
+    """Applying a suggestion then re-checking must not stack the same qualifier."""
+    from app.suggestions import suggest_names
+    draft = {"name": "fetch_invoice_retrieve",
+             "description": "Retrieve the freight invoice for a shipment by its identifier.",
+             "input_schema": {"type": "object", "properties": {}}}
+    other = {"name": "get_invoice", "description": "Fetch a single invoice by its ID.",
+             "input_schema": {"type": "object", "properties": {}}}
+    for n in suggest_names(draft, other, "shipping", {"get_invoice"}):
+        toks = n.lower().split("_")
+        assert len(toks) == len(set(toks)), n     # no token appears twice

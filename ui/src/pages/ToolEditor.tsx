@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
+import { PairBreakdown } from '../components'
 
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_match: number }[]; title_tip?: string | null; description_tip: string } | null }
+  suggestions?: { names: { name: string; title: string; new_match: number }[]; current_name_match?: number; title_suggestion?: string | null; description_tip: string } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -214,21 +215,8 @@ function SimilarPanel({ productKey, entityId, matches }:
           rows.push(
             <tr key={m.id + 'x'}><td colSpan={3} style={{ background: '#f8f9fa' }}>
               {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span>
-                : ex.failed ? <span className="muted">Couldn't load this comparison.</span> : <div>
-                {ex.subscores && <div className="row" style={{ gap: 18 }}>
-                  {Object.entries(ex.subscores).map(([k, v]: [string, any]) => (
-                    <span key={k} className="muted">{k}: <b className="score">{Math.round(v * 100)}%</b></span>))}
-                </div>}
-                {ex.shared?.terms?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
-                  Common terms: {ex.shared.terms.slice(0, 8).map((t: string) =>
-                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
-                {ex.shared?.parameters?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
-                  Common parameters: {ex.shared.parameters.map((t: string) =>
-                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
-                {(ex.recommendations ?? []).map((r: any, i: number) => (
-                  <div key={i} className={r.severity === 'high' ? 'err' : 'ok-banner'}
-                    style={{ margin: '6px 0' }}>{r.message}</div>))}
-              </div>}
+                : ex.failed ? <span className="muted">Couldn't load this comparison.</span>
+                : <PairBreakdown ex={ex} />}
             </td></tr>)
         }
         return rows
@@ -241,11 +229,13 @@ function SimilarPanel({ productKey, entityId, matches }:
 function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
+  const [wasFlagged, setWasFlagged] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   const th = matches?.threshold ?? 0.5
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
+  useEffect(() => { if (flagged) setWasFlagged(true) }, [flagged])
   return (
     <div className="card">
       <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
@@ -257,21 +247,41 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ {Math.round(top.score * 100)}% similar to <b className="score">{top.product_key}/{top.name}</b>
+          <span className="muted"> (your threshold: {Math.round(th * 100)}%)</span>
           {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}
           {matches.suggestions?.names?.length ? (
-            <div style={{ marginTop: 8 }}>
-              Names you could use instead (click to apply — new name match shown):{' '}
-              {matches.suggestions.names.map((s: { name: string; title: string; new_match: number }) => (
-                <button key={s.name} className="small" style={{ marginRight: 6 }}
-                  title={`Rename to ${s.name}, title "${s.title}"`}
-                  onClick={() => set({ name: s.name, title: s.title })}>
-                  {s.name} · {Math.round(s.new_match * 100)}%</button>
-              ))}
+            <div className="sugg-row">
+              <span className="sugg-label">Name</span>
+              <span style={{ fontWeight: 400 }}>
+                {matches.suggestions.names.map((s: { name: string; title: string; new_match: number }) => (
+                  <button key={s.name} className="small chip" style={{ marginRight: 6 }}
+                    title={`Rename to "${s.name}" (title: "${s.title}") — name similarity vs ${top.name} drops from ${Math.round((matches.suggestions!.current_name_match ?? 1) * 100)}% to ${Math.round(s.new_match * 100)}%`}
+                    onClick={() => set({ name: s.name, title: s.title })}>
+                    {s.name}</button>
+                ))}
+              </span>
             </div>
           ) : null}
-          {matches.suggestions?.description_tip && (
-            <div style={{ marginTop: 6, fontWeight: 400 }}>{matches.suggestions.description_tip}</div>
+          {matches.suggestions?.title_suggestion && (
+            <div className="sugg-row">
+              <span className="sugg-label">Title</span>
+              <button className="small chip" title={matches.suggestions.title_suggestion}
+                onClick={() => set({ title: matches.suggestions!.title_suggestion })}>
+                {matches.suggestions.title_suggestion}</button>
+            </div>
           )}
+          {matches.suggestions?.description_tip && (
+            <div className="sugg-row">
+              <span className="sugg-label">Description</span>
+              <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {!flagged && wasFlagged && top && (
+        <div className="ok-banner" style={{ marginTop: 6 }}>
+          ✓ Looks distinct now — closest match is {top.product_key}/{top.name} at{' '}
+          {Math.round(top.score * 100)}%, below your {Math.round(th * 100)}% threshold.
         </div>
       )}
       <div className="toolbar" style={{ marginTop: 14 }}>

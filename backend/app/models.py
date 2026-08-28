@@ -108,6 +108,14 @@ class EntityVersion(Base):
     entity: Mapped[Entity] = relationship(back_populates="versions")
 
 
+class GlobalSettings(Base):
+    """Registry-wide settings (single row) — e.g. the similarity threshold,
+    which must be identical on every surface and every product."""
+    __tablename__ = "global_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class ProductSettings(Base):
     """Per-product tunables editable by product admins (e.g. similarity threshold)."""
     __tablename__ = "product_settings"

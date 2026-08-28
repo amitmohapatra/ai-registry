@@ -180,3 +180,17 @@ td { word-break: break-word; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .toolbar h2 { margin: 0 auto 0 0; white-space: nowrap; }
 .toolbar .searchbox { width: 220px; }
+
+
+/* honest severity colors: red = act, amber = caution, neutral = tip */
+.warn { background: var(--warn-bg); border: 0; border-left: 3px solid var(--warn);
+  color: #7a4a00; padding: 10px 14px; border-radius: var(--radius-s); font-size: 13px;
+  margin: 10px 0; line-height: 1.5; }
+.note { background: #f1f3f4; border: 0; border-left: 3px solid var(--faint);
+  color: var(--muted); padding: 10px 14px; border-radius: var(--radius-s); font-size: 13px;
+  margin: 10px 0; line-height: 1.5; }
+.chip { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: inline-block; vertical-align: middle; }
+.sugg-row { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; flex-wrap: wrap; }
+.sugg-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: #a05252; min-width: 80px; }

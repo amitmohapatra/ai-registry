@@ -171,7 +171,13 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
     subs = {"name": name_sim, "description": desc_sim, "parameters": param_sim}
     if title_sim is not None:
         subs["title"] = title_sim
+    weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in subs}
+    total_w = sum(weights.values())
+    contributions = {f: round(subs[f] * w / total_w, 4) for f, w in weights.items()}
     return {"subscores": subs,
+            "overall": round(sum(contributions.values()), 4),
+            "contributions": contributions,
+            "params": {"a": sorted(a_params), "b": sorted(b_params)},
             "shared": {"terms": shared_terms, "parameters": shared_params},
             "recommendations": recs}
 

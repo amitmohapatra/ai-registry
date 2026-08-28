@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
-import { ConfirmButton } from '../components'
+import { ConfirmButton, PairBreakdown } from '../components'
 
 export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
@@ -30,7 +30,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
         <Audiences productKey={productKey} canEdit={canEdit}
           onChanged={() => setAudBump(b => b + 1)} />
         <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />
-        <SimilaritySettings productKey={productKey} canEdit={canEdit} />
+        <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />
         <Settings productKey={productKey} me={me} canEdit={canEdit} />
         <Audit productKey={productKey} />
       </>}
@@ -133,7 +133,7 @@ function Duplicates({ productKey }: { productKey: string }) {
             <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
               <td><b className="score">{p.a.product_key}/{p.a.name}</b></td>
               <td><b className="score">{p.b.product_key}/{p.b.name}</b></td>
-              <td><b className="score">{pct(p.score)}</b> <span className="muted">(cosine {p.score})</span></td>
+              <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
               <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}
                 <span className="muted" style={{ marginLeft: 8 }}>{open === key ? '▾' : '▸'}</span></td>
             </tr>)]
@@ -141,21 +141,7 @@ function Duplicates({ productKey }: { productKey: string }) {
             <tr key={key + 'x'}><td colSpan={4} style={{ background: '#f8f9fa' }}>
               {explain === 'loading' ? <span className="muted">Analyzing…</span>
                 : explain === 'error' ? <span className="muted">Couldn't load this comparison.</span>
-                : <div>
-                <div className="row" style={{ gap: 20 }}>
-                  {Object.entries(explain.subscores).map(([k, v]: [string, any]) => (
-                    <span key={k} className="muted">{k}: <b className="score">{pct(v)}</b></span>))}
-                </div>
-                {explain.shared.terms.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
-                  Common terms: {explain.shared.terms.map((t: string) =>
-                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
-                {explain.shared.parameters.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
-                  Common parameters: {explain.shared.parameters.map((t: string) =>
-                    <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
-                {explain.recommendations.map((r: any, j: number) => (
-                  <div key={j} className={r.severity === 'high' ? 'err' : 'ok-banner'}
-                    style={{ margin: '6px 0' }}>{r.message}</div>))}
-              </div>}
+                : <PairBreakdown ex={explain} />}
             </td></tr>)
           return rows
         })}
@@ -380,9 +366,9 @@ function SimilaritySettings({ productKey, canEdit }: { productKey: string; canEd
   useEffect(() => { api.settingsGet(productKey).then(s => setPct(Math.round(s.similarity_threshold * 100))) }, [productKey])
   return (
     <div className="card">
-      <h2>Similarity</h2>
-      <p className="muted">Tools scoring at or above this are flagged as overlapping — in the
-        duplicates report and in the editor's overlap warning.</p>
+      <h2>Similarity threshold <span className="muted">(whole registry)</span></h2>
+      <p className="muted">One threshold for every product and every screen: the overlap report,
+        the editor's warnings and the suggestions all use exactly this value. Super admin only.</p>
       <div className="row">
         <input type="range" min={5} max={95} step={5} value={pct} disabled={!canEdit}
           style={{ width: 220 }} onChange={e => setPct(Number(e.target.value))} />

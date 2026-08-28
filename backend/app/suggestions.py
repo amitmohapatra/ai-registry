@@ -50,8 +50,13 @@ def suggest_names(draft: dict, other: dict, product_key: str,
                 and _NAME_RE.match(c) and c not in out):
             out.append(c)
 
-    for tok in _distinct_tokens(draft, other)[:3]:
+    current_tokens = set(current.lower().replace("-", "_").split("_"))
+    for tok in _distinct_tokens(draft, other):
+        if tok in current_tokens:
+            continue                              # never fetch_invoice_retrieve_retrieve
         consider(f"{current}_{tok}")
+        if len(out) >= 3:
+            break
     consider(f"{product_key.replace('-', '_')}_{current}")
     base = current.split("_")
     if len(base) > 1:                       # reorder: object-first variant
@@ -63,9 +68,9 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
     other_name = other.get("name", "")
     distinct = _distinct_tokens(draft, other)
     if distinct:
-        return (f"Make the description say what only this tool does — for example "
-                f"mention: {', '.join(distinct[:4])}. Right now it reads almost the "
-                f"same as {other_name}.")
+        return (f"What sets this tool apart: {', '.join(distinct[:4])}. Lead with that — "
+                f"start the description with it — so a model can't read this as the same "
+                f"action as {other_name}.")
     return (f"The description doesn't say anything that {other_name} doesn't already "
             f"say. Add what makes this tool different — its data source, its scope, "
             f"or when someone should pick it over {other_name}.")
@@ -85,9 +90,14 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
             if predicted < current_sim - 0.1:          # only offer genuine improvements
                 names.append({"name": n, "title": humanize(n),
                               "new_match": round(predicted, 2)})
+    title_suggestion = None
+    if names:
+        title_suggestion = names[0]["title"]
+    elif (d := _distinct_tokens(draft, other)):
+        title_suggestion = f"{humanize(draft.get('name', ''))} ({d[0]})"
     return {
         "names": names,
-        "title_tip": (f"Give it a title that says what makes it different — e.g. "
-                      f"'{humanize(names[0]['name'])}'" if names else None),
+        "current_name_match": round(current_sim, 2),
+        "title_suggestion": title_suggestion,
         "description_tip": description_tip(draft, other),
     }
