@@ -261,41 +261,30 @@ function SimilarPanel({ entityId, matches }:
 
 type SuggOption = { text: string; hover: string; pct: number | null; tag?: string; apply: () => void }
 
-/* Research-backed change display: absolute before -> after, a directional
-   delta, AND a text label (never color alone) telling the user the outcome. */
 function SuggGroup({ label, current, threshold, options }:
   { label: string; current: number; threshold: number; options: SuggOption[] }) {
   const P = (x: number) => `${Math.round(x * 100)}%`
+  void threshold
   return (
     <div className="sugg-group">
       <span className="sugg-label">{label}</span>
       <div className="sugg-options">
-        {options.map(o => {
-          const deltaPts = o.pct == null ? 0 : Math.round((current - o.pct) * 100)
-          return (
-            <div key={o.text} className="sugg-option">
-              <span className="sugg-text" title={o.hover}>{o.text}</span>
-              {o.tag && <span className="keep-tag" title="This option edits your description — the rest of your text stays exactly as you wrote it">{o.tag}</span>}
-              {o.pct != null && (
-                <span className="sugg-outcome" title={deltaPts > 0
-                  ? `Reduces the match by ${deltaPts} points, from ${P(current)} to ${P(o.pct)}`
-                  : 'Would not reduce the match'}>
-                  <s className="muted">{P(current)}</s>
-                  <span className="sugg-arrow">→</span>
-                  {o.pct < threshold
-                    ? <span className="delta ok">{P(o.pct)} ✓ fixes it</span>
-                    : deltaPts >= 1
-                      ? <span className="delta part">{P(o.pct)} ↓ −{deltaPts} pts, still above {P(threshold)}</span>
-                      : <span className="delta none">{P(o.pct)} · no change</span>}
-                </span>
-              )}
-              <button className="icon-act" title="Apply this suggestion" aria-label="Apply"
-                onClick={o.apply}>✓</button>
-              <button className="icon-act" title="Copy to clipboard" aria-label="Copy"
-                onClick={() => { navigator.clipboard.writeText(o.text); toast('Copied') }}>⧉</button>
-            </div>
-          )
-        })}
+        {options.map(o => (
+          <div key={o.text} className="sugg-option">
+            <span className="sugg-text" title={o.hover}>{o.text}</span>
+            {o.pct != null && (
+              <span className="sugg-outcome" title={`Applying this changes the match from ${P(current)} to ${P(o.pct)} — below your threshold`}>
+                <s className="muted">{P(current)}</s>
+                <span className="sugg-arrow">→</span>
+                <span className="delta ok">{P(o.pct)} ✓ fixes it</span>
+              </span>
+            )}
+            <button className="icon-act" title="Apply this suggestion" aria-label="Apply"
+              onClick={o.apply}>✓</button>
+            <button className="icon-act" title="Copy to clipboard" aria-label="Copy"
+              onClick={() => { navigator.clipboard.writeText(o.text); toast('Copied') }}>⧉</button>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -342,23 +331,17 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
             matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
             <div className="sugg-panel">
-              {(() => {
-                const all = [...(matches.suggestions?.names ?? []), ...(matches.suggestions?.titles ?? []),
-                             ...(matches.suggestions?.descriptions ?? [])]
-                const anyFix = all.some((o: any) => o.new_overall != null && o.new_overall < th)
-                const bundle = matches.suggestions?.bundle
-                return <div className="sugg-head">{anyFix
-                  ? <>Verified fixes — every green option drops the match under your {Math.round(th * 100)}% threshold, checked against every nearby tool</>
-                  : bundle
-                    ? <>One verified fix found — it changes name and description together. The rows further down adjust one field at a time and are only partial steps.</>
-                    : <>Partial improvements only — nothing verified to clear {Math.round(th * 100)}% yet; use the template below to add what makes this tool different.</>}</div>
-              })()}
+              <div className="sugg-head">{matches.suggestions?.bundle
+                ? <>Verified fix — apply name, title and description together and this drops below your {Math.round(th * 100)}% threshold (checked against every product)</>
+                : (matches.suggestions?.names?.length || matches.suggestions?.titles?.length || matches.suggestions?.descriptions?.length)
+                  ? <>Verified fixes — applying any option drops the match below your {Math.round(th * 100)}% threshold (checked against every product)</>
+                  : <>No wording alone fixes this — use the template below, or reconsider whether this tool duplicates an existing one</>}</div>
               {matches.suggestions?.bundle && (
             <div className="bundle-row">
               <span className="dot green" />
               <span style={{ flex: 1, minWidth: 0 }}>
-                <b>Combined fix</b> — rename to <b className="score">{matches.suggestions.bundle.name}</b> and
-                replace the description (shown on hover)
+                <b>Apply all three</b> — name <b className="score">{matches.suggestions.bundle.name}</b>, its title,
+                and an updated description (hover to read it)
                 <span className="sugg-outcome" style={{ marginLeft: 8 }}
                   title={matches.suggestions.bundle.description}>
                   <s className="muted">{Math.round(top.score * 100)}%</s>
@@ -385,7 +368,6 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
               {matches.suggestions?.descriptions?.length ? (
                 <SuggGroup label="Description" current={top.score} threshold={th} options={matches.suggestions.descriptions.map((o: any) => ({
                   text: o.text, hover: o.text, pct: o.new_overall,
-                  tag: o.keeps_content ? 'keeps your text' : undefined,
                   apply: () => set({ description: o.text }) }))} />
               ) : matches.suggestions?.description_tip ? (
                 <div className="sugg-row"><span className="sugg-label">Description</span>

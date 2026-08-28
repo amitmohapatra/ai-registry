@@ -266,13 +266,12 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         return round(max(blend_breakdown(rr, applied, o)["overall"] for o in field), 2)
 
     def pick(options):
+        # verified fixes ONLY — a row that gets to 84% helps nobody
         if not neural:
             return options[:3]
-        valid = [o for o in options if o["new_overall"] is not None]
-        fixes = [o for o in valid if o["new_overall"] < threshold]
-        pool = fixes or [o for o in valid if current_overall is None
-                         or o["new_overall"] < round(current_overall, 2)]
-        return sorted(pool, key=lambda o: o["new_overall"])[:3]
+        fixes = [o for o in options if o["new_overall"] is not None
+                 and o["new_overall"] < threshold]
+        return sorted(fixes, key=lambda o: o["new_overall"])[:3]
 
     raw_names = []
     if name_collision:
@@ -312,15 +311,16 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                                 + descriptions)[:3]
                 any_fix = True
 
-    # combined fix: rename + rewrite TOGETHER often clears a bar neither
-    # field can clear alone (name 15% + title 10% + description 55% of the blend)
+    # THE headline: name + title + description applied TOGETHER (name 15% +
+    # title 10% + description 55% of the blend clears bars no field can alone)
     bundle = None
-    if neural and not any_fix and current_overall is not None and current_overall >= threshold:
-        nm_c = [o for o in sorted((o for o in raw_names if o["new_overall"] is not None),
-                                  key=lambda o: o["new_overall"])[:2]]
-        dc_c = [o for o in sorted((o for o in raw_desc if o["new_overall"] is not None
-                                   and o.get("keeps_content", True)),
-                                  key=lambda o: o["new_overall"])[:2]]
+    if neural and current_overall is not None and current_overall >= threshold:
+        nm_c = sorted((o for o in raw_names if o["new_overall"] is not None),
+                      key=lambda o: o["new_overall"])[:2]
+        desc_pool = [o for o in raw_desc if o["new_overall"] is not None
+                     and o.get("keeps_content", True)]
+        desc_pool += [o for o in descriptions if o not in desc_pool]
+        dc_c = sorted(desc_pool, key=lambda o: o["new_overall"])[:2]
         best = None
         for nm in (nm_c or [None]):
             for dc in (dc_c or [None]):
@@ -330,7 +330,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                 if dc:
                     patch["description"] = dc["text"]
                 if len(patch) < 3:
-                    continue                       # combos only — singles already tried
+                    continue                       # combos only — singles shown separately
                 p = predicted(patch)
                 if p is not None and (best is None or p < best["new_overall"]):
                     best = {"name": patch["name"], "title": patch["title"],
@@ -340,7 +340,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
 
     # concrete frame the author can fill in — forces the distinguishing facts
     template = None
-    if neural and not any_fix and current_overall is not None and current_overall >= threshold:
+    if neural and not any_fix and not bundle and current_overall is not None and current_overall >= threshold:
         template = (f"{product_key.capitalize()}-owned <record type> lookup: returns "
                     f"<exactly what it returns> from <your data source>. Use it when "
                     f"<your situation>; for <the other situation> use {other_name}. "
