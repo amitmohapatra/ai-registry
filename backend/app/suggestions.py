@@ -24,7 +24,8 @@ _STOP = {"a", "an", "the", "by", "for", "of", "to", "in", "on", "with", "and", "
          "which", "should", "would", "could", "them", "these", "those", "have", "has",
          "been", "were", "more", "most", "other", "another", "such", "like", "well",
          "just", "first", "right", "there", "here", "what", "whether", "before",
-         "after", "while", "during", "does", "unknown", "linked", "applied"}
+         "after", "while", "during", "does", "unknown", "linked", "applied",
+         "they", "were", "when", "one", "also"}
 
 
 def humanize(name: str) -> str:
@@ -179,6 +180,66 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
     return [_dedupe_words(t) for t in dict.fromkeys(out)]
 
 
+def _fieldize(sentence: str, label: str) -> str:
+    """Compress a prose sentence into a telegraphic field list: every content
+    word survives (an LLM still reads exactly what the tool covers) while the
+    sentence STRUCTURE — what cross-encoders latch onto — changes completely."""
+    words = [t for t in _TOKEN.findall(sentence.lower())
+             if len(t) > 3 and t not in _STOP and not is_action_word(t)]
+    return (f"{label}: " + ", ".join(dict.fromkeys(words)) + ".") if words else sentence
+
+
+def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
+                      threshold: float, field: List[dict], rr,
+                      max_edits: int = 3) -> Optional[str]:
+    """Iterative surgical edit: rework the sentence that collides hardest,
+    re-measure worst-case against every nearby tool, then remove the next-worst
+    DUPLICATED sentence (the ones most like the other tool are the duplicated
+    content, not the author's unique content), up to max_edits steps. Returns a
+    description verified to land below the threshold while keeping >= 60% of
+    the original content words — or None if that is honestly impossible."""
+    full = desc_text_of(draft).strip()
+    if len(full) <= 160:
+        return None
+    sentences = re.split(r"(?<=[.!?])\s+", full)
+    if len(sentences) < 2:
+        return None
+    d = _distinct_tokens(draft, other)
+    if not d:
+        return None
+    a1 = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
+    params = list((draft.get("input_schema") or {}).get("properties", {}))
+    main_param = (params[0].replace("_", " ") if params else "identifier")
+    lead = (f"{product_key.capitalize()}-scoped record view centred on {a1}, "
+            f"keyed by {main_param}.")
+    current = list(sentences)
+    edited: set = set()
+    for step in range(max_edits + 1):
+        text = _dedupe_words(" ".join(x for x in current if x))
+        worst_score, blocker = max(
+            ((blend_breakdown(rr, {**draft, "description": text}, o)["overall"], o)
+             for o in field), key=lambda x: x[0])
+        if worst_score < threshold:
+            return text if _retention(text, full) >= 0.6 else None
+        if step == max_edits:
+            return None
+        live = [x for x in current if x]
+        sims = rr.score_pairs(desc_text_of(blocker), live)
+        order = sorted(range(len(live)), key=lambda i: -sims[i])
+        idx = next((current.index(live[j]) for j in order
+                    if current.index(live[j]) not in edited), None)
+        if idx is None:
+            return None
+        # first step reworks the worst offender into an anchored lead; later
+        # steps COMPRESS offenders into field lists — the content words all
+        # survive (no hallucination risk) but the prose structure the
+        # cross-encoder matches on is gone
+        labels = ["Data included", "Usage notes", "Notes"]
+        current[idx] = lead if not edited else _fieldize(current[idx], labels[min(len(edited) - 1, 2)])
+        edited.add(idx)
+    return None
+
+
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool,
                       threshold: float = 0.5,
@@ -240,6 +301,16 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     def is_fix(o):
         return o["new_overall"] is not None and o["new_overall"] < threshold
     any_fix = any(is_fix(o) for o in names + titles + descriptions)
+
+    if neural and not any_fix and current_overall is not None and current_overall >= threshold:
+        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr)
+        if deep is not None:
+            p = predicted({"description": deep})
+            if p is not None and p < threshold:
+                descriptions = ([{"text": deep, "new_overall": p,
+                                  "keeps_content": _retention(deep, full_desc) >= 0.6}]
+                                + descriptions)[:3]
+                any_fix = True
 
     # combined fix: rename + rewrite TOGETHER often clears a bar neither
     # field can clear alone (name 15% + title 10% + description 55% of the blend)
