@@ -194,3 +194,21 @@ td { word-break: break-word; }
 .sugg-row { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; flex-wrap: wrap; }
 .sugg-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .05em; color: #a05252; min-width: 80px; }
+
+/* clamp long descriptions in list tables; full text on hover */
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; }
+
+/* suggestion panel inside the similarity warning — roomy, one option per row */
+.sugg-panel { margin-top: 10px; padding: 12px 14px; background: #fff;
+  border: 1px solid #f4c7c3; border-radius: 8px; }
+.sugg-head { font-size: 12px; font-weight: 600; color: #a50e0e; margin-bottom: 8px; }
+.sugg-group { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; }
+.sugg-group + .sugg-group { border-top: 1px solid #fdeceb; }
+.sugg-options { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sugg-option { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sugg-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 400; color: #202124; cursor: default; }
+.sugg-pct { font-weight: 700; color: #a50e0e; white-space: nowrap; }
+.sugg-option button.ghost { background: transparent; color: #5f6368;
+  border: 1px solid #dadce0; }

@@ -93,27 +93,53 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
             f"or when someone should pick it over {other_name}.")
 
 
+def _an(word: str) -> str:
+    return f"an {word}" if word[:1].lower() in "aeiou" else f"a {word}"
+
+
+def _dedupe_words(text: str) -> str:
+    """Collapse immediately repeated words ('customer customer record')."""
+    out: List[str] = []
+    for w in text.split(" "):
+        if not out or w.lower() != out[-1].lower():
+            out.append(w)
+    return " ".join(out)
+
+
 def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]:
     """Affirmative rewrites (research: models barely register negation — 'Unlike X'
-    keeps the similarity; a rewrite must CHANGE what the text asserts). Lead with
-    the distinct terms, drop the shared phrasing, stay positive."""
+    keeps the similarity; a rewrite must CHANGE what the text asserts). Short
+    descriptions get full rewrites; a LONG description the author invested in is
+    respected — we edit it (rework the lead, add scope) rather than replace it."""
     d = _distinct_tokens(draft, other)
     params = list((draft.get("input_schema") or {}).get("properties", {}))
     main_param = (params[0].replace("_", " ") if params else "identifier")
-    out = []
-    if len(d) >= 2:
-        anchor = f"{d[0]} {d[1]}"
-    elif d:
-        anchor = d[0]
-    else:
+    if not d:
         return []
-    out.append(f"{anchor.capitalize()} lookup for {product_key}: returns the "
-               f"{anchor} record matching a given {main_param}.")
-    out.append(f"Look up the {anchor} held in {product_key} for a specific "
-               f"{main_param}; no other record types are returned.")
-    out.append(f"Given a {main_param}, returns {product_key}'s {anchor} record "
-               f"for it — scoped to {product_key} data only.")
-    return out
+    anchor = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
+    full = desc_text_of(draft).strip()
+    out = []
+    short = (f"{anchor.capitalize()} lookup for {product_key}: returns the "
+             f"{anchor} record matching {_an(main_param)}.")
+    if len(full) > 160:
+        # keep the author's text; rework only the lead sentence (the part that
+        # reads most like the other tool) and offer an added scope line
+        parts = re.split(r"(?<=[.!?])\s+", full, maxsplit=1)
+        rest = parts[1] if len(parts) > 1 else ""
+        lead = (f"Look up the {anchor} information that {product_key} keeps "
+                f"for a specific {main_param}.")
+        if rest:
+            out.append(f"{lead} {rest}")
+        out.append(f"{full} Applies only to {product_key}'s own {anchor} "
+                   f"records; data owned by other products is never returned.")
+        out.append(short)
+    else:
+        out.append(short)
+        out.append(f"Look up the {anchor} held in {product_key} for a specific "
+                   f"{main_param}; no other record types are returned.")
+        out.append(f"Given {_an(main_param)}, returns {product_key}'s {anchor} "
+                   f"record for it — scoped to {product_key} data only.")
+    return [_dedupe_words(t) for t in out]
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,

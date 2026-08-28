@@ -47,26 +47,28 @@ export default function ToolEditor() {
   useEffect(() => {
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
     api.audiences(productKey).then(a => setAudiences(a.map(x => x.key)))
-    const stored = sessionStorage.getItem(draftKey)
     if (entityId) {
-      api.entity(productKey, entityId).then(e => {
+      sessionStorage.removeItem(draftKey)          // leaving without publishing discards edits:
+      api.entity(productKey, entityId).then(e => { // coming back always shows the published tool
         setSavedPayload(e.payload); setVersion(e.version)
-        setPayload(stored ? JSON.parse(stored) : e.payload)   // unsaved edits survive navigation
+        setPayload(e.payload)
         api.similarPreview(productKey, { type: 'tool',
           payload: { ...e.payload, _entity_id: entityId } })
           .then(setSavedMatches).catch(() => {})              // panel shows PUBLISHED state
       })
       api.versions(productKey, entityId).then(setVersions)
-    } else if (stored) {
-      setPayload(JSON.parse(stored))
+    } else {
+      const stored = sessionStorage.getItem(draftKey)
+      if (stored) setPayload(JSON.parse(stored))
     }
   }, [productKey, entityId])
 
-  // persist the draft (and thereby its warnings/errors) across page changes
+  // persist a NEW tool's draft across page changes (existing tools always
+  // reload their published state — unpublished edits are intentionally dropped)
   useEffect(() => {
-    if (payload.name || payload.description)
+    if (isNew && (payload.name || payload.description))
       sessionStorage.setItem(draftKey, JSON.stringify(payload))
-  }, [payload, draftKey])
+  }, [payload, draftKey, isNew])
 
   // live preview — the same validate+resolve pipeline as Save
   useEffect(() => {
@@ -254,6 +256,29 @@ function SimilarPanel({ entityId, matches }:
   )
 }
 
+type SuggOption = { text: string; hover: string; pct: number | null; apply: () => void }
+
+function SuggGroup({ label, options }: { label: string; options: SuggOption[] }) {
+  return (
+    <div className="sugg-group">
+      <span className="sugg-label">{label}</span>
+      <div className="sugg-options">
+        {options.map(o => (
+          <div key={o.text} className="sugg-option">
+            <span className="sugg-text" title={o.hover}>{o.text}</span>
+            {o.pct != null && <span className="sugg-pct"
+              title="Overall match with the conflicting tool if you apply this">→ {Math.round(o.pct * 100)}%</span>}
+            <button className="small" onClick={o.apply}>Apply</button>
+            <button className="small ghost" title="Copy to clipboard" onClick={() => {
+              navigator.clipboard.writeText(o.text); toast('Copied')
+            }}>Copy</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ---------- base form ---------- */
 function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
   const [jsonMode, setJsonMode] = useState(false)
@@ -292,48 +317,28 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 ))}
             </span>
           )}
-          {matches.suggestions?.names?.length ? (
-            <div className="sugg-row">
-              <span className="sugg-label">Name</span>
-              <span style={{ fontWeight: 400 }}>
-                {matches.suggestions.names.map((s: { name: string; title: string; new_overall: number | null }) => (
-                  <button key={s.name} className="small chip" style={{ marginRight: 6 }}
-                    title={`Rename to "${s.name}" (title "${s.title}")${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
-                    onClick={() => set({ name: s.name, title: s.title })}>
-                    {s.name}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
-                ))}
-              </span>
-            </div>
-          ) : null}
-          {matches.suggestions?.titles?.length ? (
-            <div className="sugg-row">
-              <span className="sugg-label">Title</span>
-              <span style={{ fontWeight: 400 }}>
-                {matches.suggestions.titles.map((s: { title: string; new_overall: number | null }) => (
-                  <button key={s.title} className="small chip" style={{ marginRight: 6 }}
-                    title={`${s.title}${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
-                    onClick={() => set({ title: s.title })}>
-                    {s.title}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
-                ))}
-              </span>
-            </div>
-          ) : null}
-          {matches.suggestions?.descriptions?.length ? (
-            <div className="sugg-row">
-              <span className="sugg-label">Description</span>
-              <span style={{ fontWeight: 400 }}>
-                {matches.suggestions.descriptions.map((s: { text: string; new_overall: number | null }) => (
-                  <button key={s.text} className="small chip" style={{ maxWidth: 460, marginRight: 6, marginBottom: 4 }}
-                    title={`${s.text}${s.new_overall != null ? ` — overall becomes ~${Math.round(s.new_overall * 100)}%` : ''}`}
-                    onClick={() => set({ description: s.text })}>
-                    {s.text}{s.new_overall != null && <> → {Math.round(s.new_overall * 100)}%</>}</button>
-                ))}
-              </span>
-            </div>
-          ) : matches.suggestions?.description_tip ? (
-            <div className="sugg-row">
-              <span className="sugg-label">Description</span>
-              <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span>
+          {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
+            matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
+            <div className="sugg-panel">
+              <div className="sugg-head">Suggestions — each shows the overall match it would produce</div>
+              {matches.suggestions?.names?.length ? (
+                <SuggGroup label="Name" options={matches.suggestions.names.map((o: any) => ({
+                  text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,
+                  pct: o.new_overall, apply: () => set({ name: o.name, title: o.title }) }))} />
+              ) : null}
+              {matches.suggestions?.titles?.length ? (
+                <SuggGroup label="Title" options={matches.suggestions.titles.map((o: any) => ({
+                  text: o.title, hover: o.title, pct: o.new_overall,
+                  apply: () => set({ title: o.title }) }))} />
+              ) : null}
+              {matches.suggestions?.descriptions?.length ? (
+                <SuggGroup label="Description" options={matches.suggestions.descriptions.map((o: any) => ({
+                  text: o.text, hover: o.text, pct: o.new_overall,
+                  apply: () => set({ description: o.text }) }))} />
+              ) : matches.suggestions?.description_tip ? (
+                <div className="sugg-row"><span className="sugg-label">Description</span>
+                  <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span></div>
+              ) : null}
             </div>
           ) : null}
           {matches.suggestions?.resolution_hint && (

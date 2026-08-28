@@ -72,8 +72,9 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
         <thead><tr><th>Name</th><th>Description</th><th>Version</th><th>Audiences</th><th /></tr></thead>
         <tbody>{items.map(e => (
           <tr key={e.id}>
-            <td>{type === 'tool' ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link> : <b className="score">{e.name}</b>}</td>
-            <td className="muted" style={{ maxWidth: 420 }}>{e.payload.description}</td>
+            <td style={{ whiteSpace: 'nowrap' }}>{type === 'tool' ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link> : <b className="score">{e.name}</b>}</td>
+            <td className="muted clamp2" style={{ maxWidth: 420 }}
+              title={e.payload.description}>{e.payload.description}</td>
             <td className="score">v{e.version}</td>
             <td>{Object.entries(e.resolved).map(([aud, v]: [string, any]) => (
               <span key={aud} className={`pill ${v?.enabled ? 'aud' : 'off'}`} style={{ marginRight: 4 }}>{aud}</span>
