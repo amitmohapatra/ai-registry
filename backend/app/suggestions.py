@@ -117,14 +117,28 @@ def _dedupe_words(text: str) -> str:
     return " ".join(out)
 
 
+def _content_words(text: str) -> set:
+    return {t for t in _TOKEN.findall(text.lower())
+            if len(t) > 3 and t not in _STOP}
+
+
+def _retention(candidate: str, original: str) -> float:
+    """How much of the original's informational content survives (0..1)."""
+    orig = _content_words(original)
+    if not orig:
+        return 1.0
+    return len(_content_words(candidate) & orig) / len(orig)
+
+
 def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]:
-    """Affirmative rewrites (research: models barely register negation — 'Unlike X'
-    keeps the similarity; a rewrite must CHANGE what the text asserts). We generate
-    a POOL of structurally different skeletons — same-template rewrites read as
-    near-duplicates of each other — and the caller keeps only the candidates whose
-    worst-case score against every nearby tool clears the threshold. Long
-    descriptions the author invested in are edited (lead reworked, scope added)
-    rather than replaced."""
+    """Affirmative rewrites (research: models barely register negation). The
+    description is the LLM's behavior contract — a candidate that discards the
+    author's content would make every model reading it guess (hallucinate), so
+    for substantial descriptions we only produce SURGICAL edits: the sentence
+    that collides hardest with the other tool is reworked, everything else is
+    kept verbatim, and a retention guard drops any candidate that loses more
+    than 40% of the original's content words. Short descriptions carry little
+    content and may be rewritten whole, from structurally diverse skeletons."""
     d = _distinct_tokens(draft, other)
     params = list((draft.get("input_schema") or {}).get("properties", {}))
     main_param = (params[0].replace("_", " ") if params else "identifier")
@@ -133,26 +147,35 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
     a1 = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
     a2 = (f"{d[2]} {d[3]}" if len(d) >= 4 else (d[2] if len(d) >= 3 else a1))
     pk = product_key
-    skeletons = [
-        f"{a1.capitalize()} lookup for {pk}: returns the {a1} record matching {_an(main_param)}.",
-        f"Read-only access to {pk}'s {a1} data, keyed by {main_param}.",
-        f"{pk.capitalize()}-side query that resolves {_an(main_param)} to its {a2} entry.",
-        f"Reports the {a2} held by {pk} for one {main_param}; nothing else is returned.",
-        f"Look up the {a1} held in {pk} for a specific {main_param}; no other record types are returned.",
-    ]
     full = desc_text_of(draft).strip()
-    out = []
+    out: List[str] = []
     if len(full) > 160:
-        parts = re.split(r"(?<=[.!?])\s+", full, maxsplit=1)
-        rest = parts[1] if len(parts) > 1 else ""
-        if rest:
-            out.append(f"Look up the {a1} information that {pk} keeps for a specific {main_param}. {rest}")
-            out.append(f"Read-only {pk} view of {a1} data for one {main_param}. {rest}")
+        sentences = re.split(r"(?<=[.!?])\s+", full)
+        rr = reranker()
+        if len(sentences) > 1 and not isinstance(rr, NoopReranker):
+            sims = rr.score_pairs(desc_text_of(other), sentences)
+            worst = max(range(len(sentences)), key=lambda i: sims[i])
+        else:
+            worst = 0
+        leads = [
+            f"Look up the {a1} information that {pk} keeps for a specific {main_param}.",
+            f"{pk.capitalize()}-scoped record view centred on {a1}, keyed by {main_param}.",
+            f"{pk.capitalize()} reference for {a2} data tied to one {main_param}.",
+        ]
+        for lead in leads:                       # rework ONLY the offending sentence
+            rebuilt = sentences[:worst] + [lead] + sentences[worst + 1:]
+            out.append(" ".join(rebuilt))
         out.append(f"{full} Applies only to {pk}'s own {a1} records; data owned by "
                    f"other products is never returned.")
-        out.extend(skeletons[:4])
+        out = [t for t in out if _retention(t, full) >= 0.6]
     else:
-        out.extend(skeletons)
+        out.extend([
+            f"{a1.capitalize()} lookup for {pk}: returns the {a1} record matching {_an(main_param)}.",
+            f"Read-only access to {pk}'s {a1} data, keyed by {main_param}.",
+            f"{pk.capitalize()}-side query that resolves {_an(main_param)} to its {a2} entry.",
+            f"Reports the {a2} held by {pk} for one {main_param}; nothing else is returned.",
+            f"Look up the {a1} held in {pk} for a specific {main_param}; no other record types are returned.",
+        ])
     return [_dedupe_words(t) for t in dict.fromkeys(out)]
 
 
@@ -208,7 +231,9 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     titles = pick([{"title": t, "new_overall": predicted({"title": t})}
                    for t in dict.fromkeys(title_texts) if t != draft.get("title")])
 
-    raw_desc = [{"text": t, "new_overall": predicted({"description": t})}
+    full_desc = desc_text_of(draft).strip()
+    raw_desc = [{"text": t, "new_overall": predicted({"description": t}),
+                 "keeps_content": _retention(t, full_desc) >= 0.6}
                 for t in _rewrite_candidates(draft, other, product_key)]
     descriptions = pick(raw_desc)
 
@@ -222,7 +247,8 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     if neural and not any_fix and current_overall is not None and current_overall >= threshold:
         nm_c = [o for o in sorted((o for o in raw_names if o["new_overall"] is not None),
                                   key=lambda o: o["new_overall"])[:2]]
-        dc_c = [o for o in sorted((o for o in raw_desc if o["new_overall"] is not None),
+        dc_c = [o for o in sorted((o for o in raw_desc if o["new_overall"] is not None
+                                   and o.get("keeps_content", True)),
                                   key=lambda o: o["new_overall"])[:2]]
         best = None
         for nm in (nm_c or [None]):

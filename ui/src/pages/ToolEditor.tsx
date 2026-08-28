@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -259,7 +259,7 @@ function SimilarPanel({ entityId, matches }:
   )
 }
 
-type SuggOption = { text: string; hover: string; pct: number | null; apply: () => void }
+type SuggOption = { text: string; hover: string; pct: number | null; tag?: string; apply: () => void }
 
 /* Research-backed change display: absolute before -> after, a directional
    delta, AND a text label (never color alone) telling the user the outcome. */
@@ -275,6 +275,7 @@ function SuggGroup({ label, current, threshold, options }:
           return (
             <div key={o.text} className="sugg-option">
               <span className="sugg-text" title={o.hover}>{o.text}</span>
+              {o.tag && <span className="keep-tag" title="This option edits your description — the rest of your text stays exactly as you wrote it">{o.tag}</span>}
               {o.pct != null && (
                 <span className="sugg-outcome" title={deltaPts > 0
                   ? `Reduces the match by ${deltaPts} points, from ${P(current)} to ${P(o.pct)}`
@@ -384,6 +385,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
               {matches.suggestions?.descriptions?.length ? (
                 <SuggGroup label="Description" current={top.score} threshold={th} options={matches.suggestions.descriptions.map((o: any) => ({
                   text: o.text, hover: o.text, pct: o.new_overall,
+                  tag: o.keeps_content ? 'keeps your text' : undefined,
                   apply: () => set({ description: o.text }) }))} />
               ) : matches.suggestions?.description_tip ? (
                 <div className="sugg-row"><span className="sugg-label">Description</span>
