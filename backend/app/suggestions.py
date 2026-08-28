@@ -85,14 +85,16 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     rr = reranker()
     other_name = other.get("name", "")
     current_sim = name_similarity(draft.get("name", ""), other_name)
+    current_overall = blend_breakdown(rr, draft, other)["overall"]
     names = []
     if name_collision:
         for n in suggest_names(draft, other, product_key, taken):
-            predicted = name_similarity(n, other_name)
-            if predicted >= current_sim - 0.1:         # only genuine improvements
+            if name_similarity(n, other_name) >= current_sim - 0.1:
                 continue
             renamed = {**draft, "name": n, "title": humanize(n)}
             new_overall = blend_breakdown(rr, renamed, other)["overall"]
+            if new_overall > current_overall - 0.02:
+                continue                    # a rename that doesn't help is noise
             names.append({"name": n, "title": humanize(n),
                           "new_overall": round(new_overall, 2)})
     title_suggestion = None
