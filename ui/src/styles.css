@@ -195,9 +195,35 @@ td { word-break: break-word; }
 .sugg-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .05em; color: #a05252; min-width: 80px; }
 
-/* clamp long descriptions in list tables; full text on hover */
+/* clamp long text to two lines (apply to an INNER div, never to a td —
+   -webkit-box would replace the cell's table layout and break row borders) */
 .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; }
+  overflow: hidden; line-height: 1.45; }
+
+/* ---- tools list ---- */
+.tools-table td { vertical-align: top; }
+.tools-table td:first-child { white-space: nowrap; }
+.tools-table .cell-sub { color: var(--muted); font-size: 12px; margin-top: 2px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.tools-table td.muted { max-width: 420px; }
+.cell-auds { white-space: nowrap; }
+.cell-auds .pill { margin-right: 4px; }
+.param-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; cursor: default; }
+.param-chip { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 11px;
+  background: #f1f3f4; border: 1px solid var(--border); border-radius: 5px;
+  padding: 2px 6px; color: #3c4043; white-space: nowrap; }
+.param-chip b { color: var(--danger); font-weight: 700; }
+.param-chip.more { background: transparent; color: var(--muted); border-style: dashed; }
+
+/* ---- collapsible sidebar ---- */
+.side { transition: width .15s ease, padding .15s ease; }
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.side-top .brand { flex: 1; white-space: nowrap; overflow: hidden; }
+.collapse-btn { flex-shrink: 0; font-size: 15px; color: var(--muted); }
+.collapse-btn:hover { background: #f1f3f4; color: var(--text); }
+.side.collapsed { width: 56px; padding: 16px 8px; align-items: center; }
+.side.collapsed .side-top { flex-direction: column; gap: 10px; }
+.side.collapsed .brand { padding: 8px 0 0; text-align: center; flex: none; }
 
 /* suggestion panel inside the similarity warning — roomy, one option per row */
 .sugg-panel { margin-top: 10px; padding: 12px 14px; background: #fff;

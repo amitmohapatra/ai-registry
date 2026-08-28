@@ -26,6 +26,10 @@ function Toaster() {
 export default function App() {
   const [me, setMe] = useState<User | null>(null)
   const [products, setProducts] = useState<Product[]>([])
+  const [collapsed, setCollapsed] = useState(localStorage.getItem('nav-collapsed') === '1')
+  const toggleNav = () => setCollapsed(c => {
+    localStorage.setItem('nav-collapsed', c ? '0' : '1'); return !c
+  })
   const loc = useLocation()
   const refresh = () => { api.me().then(setMe).catch(() => {}); api.products().then(setProducts).catch(() => {}) }
   useEffect(() => { if (hasToken()) refresh() }, [loc.pathname === '/login'])
@@ -35,23 +39,29 @@ export default function App() {
 
   return (
     <div className="shell">
-      <nav className="side">
-        <Link className="brand" to="/">✦ AI Registry</Link>
-        <div className="side-section">Products</div>
-        {products.map(p => (
-          <Link key={p.id} className={`item ${loc.pathname.startsWith(`/p/${p.key}`) ? 'active' : ''}`}
-            to={`/p/${p.key}`}>{p.name}</Link>
-        ))}
-        {me?.is_super_admin && (
-          <Link className={`item add ${loc.pathname === '/' ? 'active' : ''}`} to="/">+ Add product</Link>
-        )}
-        <div className="side-bottom">
-          {me?.is_super_admin && (
-            <Link className={`item ${loc.pathname === '/users' ? 'active' : ''}`} to="/users">People</Link>
-          )}
-          <a className="item" href="/login" onClick={() => clearToken()}>Sign out</a>
-          {me && <div className="muted" style={{ marginTop: 10, padding: "0 12px" }}>{me.email}</div>}
+      <nav className={`side ${collapsed ? 'collapsed' : ''}`}>
+        <div className="side-top">
+          <Link className="brand" to="/" title="AI Registry">✦{!collapsed && ' AI Registry'}</Link>
+          <button className="icon-btn collapse-btn" onClick={toggleNav}
+            title={collapsed ? 'Expand navigation' : 'Collapse navigation'}>{collapsed ? '»' : '«'}</button>
         </div>
+        {!collapsed && <>
+          <div className="side-section">Products</div>
+          {products.map(p => (
+            <Link key={p.id} className={`item ${loc.pathname.startsWith(`/p/${p.key}`) ? 'active' : ''}`}
+              to={`/p/${p.key}`}>{p.name}</Link>
+          ))}
+          {me?.is_super_admin && (
+            <Link className={`item add ${loc.pathname === '/' ? 'active' : ''}`} to="/">+ Add product</Link>
+          )}
+          <div className="side-bottom">
+            {me?.is_super_admin && (
+              <Link className={`item ${loc.pathname === '/users' ? 'active' : ''}`} to="/users">People</Link>
+            )}
+            <a className="item" href="/login" onClick={() => clearToken()}>Sign out</a>
+            {me && <div className="muted" style={{ marginTop: 10, padding: "0 12px" }}>{me.email}</div>}
+          </div>
+        </>}
       </nav>
       <Toaster />
       <main className="main">

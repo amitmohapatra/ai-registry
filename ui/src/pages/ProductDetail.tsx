@@ -68,23 +68,30 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
           onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
         {canEdit && type === 'tool' && <Link to={`/p/${productKey}/tools/new`}><button className="primary small">+ New tool</button></Link>}
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Description</th><th>Version</th><th>Audiences</th><th /></tr></thead>
+      <table className="tools-table">
+        <thead><tr><th>Name</th><th>Description</th><th>Parameters</th><th>Version</th><th>Audiences</th><th /></tr></thead>
         <tbody>{items.map(e => (
           <tr key={e.id}>
-            <td style={{ whiteSpace: 'nowrap' }}>{type === 'tool' ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link> : <b className="score">{e.name}</b>}</td>
-            <td className="muted clamp2" style={{ maxWidth: 420 }}
-              title={e.payload.description}>{e.payload.description}</td>
+            <td>
+              {type === 'tool'
+                ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link>
+                : <b className="score">{e.name}</b>}
+              {e.payload.title && <div className="cell-sub" title={e.payload.title}>{e.payload.title}</div>}
+            </td>
+            <td className="muted">
+              <div className="clamp2" title={e.payload.description}>{e.payload.description}</div>
+            </td>
+            <td><ParamChips schema={e.payload.input_schema} /></td>
             <td className="score">v{e.version}</td>
-            <td>{Object.entries(e.resolved).map(([aud, v]: [string, any]) => (
-              <span key={aud} className={`pill ${v?.enabled ? 'aud' : 'off'}`} style={{ marginRight: 4 }}>{aud}</span>
+            <td className="cell-auds">{Object.entries(e.resolved).map(([aud, v]: [string, any]) => (
+              <span key={aud} className={`pill ${v?.enabled ? 'aud' : 'off'}`}>{aud}</span>
             ))}</td>
             <td>{canEdit && <ConfirmButton icon label={`Delete ${type}`} confirmLabel="Delete?"
               onConfirm={() => remove(e)} />}</td>
           </tr>
         ))}
-        {!loaded && <tr><td colSpan={5} className="muted">Loading…</td></tr>}
-        {loaded && items.length === 0 && <tr><td colSpan={5} className="muted">
+        {!loaded && <tr><td colSpan={6} className="muted">Loading…</td></tr>}
+        {loaded && items.length === 0 && <tr><td colSpan={6} className="muted">
           {q ? `No ${type}s matching "${q}".` : 'Nothing here yet.'}</td></tr>}
         </tbody>
       </table>
@@ -190,6 +197,22 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
         </form>
       )}
     </div>
+  )
+}
+
+function ParamChips({ schema }: { schema: any }) {
+  const props = Object.keys(schema?.properties ?? {})
+  const required = new Set<string>(schema?.required ?? [])
+  if (props.length === 0) return <span className="muted">—</span>
+  const shown = props.slice(0, 3)
+  const json = JSON.stringify(schema, null, 2)
+  return (
+    <span className="param-chips" title={json}>
+      {shown.map(p => (
+        <span key={p} className="param-chip">{p}{required.has(p) ? <b>*</b> : null}</span>
+      ))}
+      {props.length > 3 && <span className="param-chip more">+{props.length - 3}</span>}
+    </span>
   )
 }
 
