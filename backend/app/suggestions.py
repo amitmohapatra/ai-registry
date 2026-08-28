@@ -8,6 +8,7 @@ from typing import List, Optional, Set
 
 from .similarity import (NoopReranker, blend_breakdown, desc_text_of, is_action_word,
                          name_similarity, reranker)
+from .tuning import DEFAULTS as _TUNE
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -164,7 +165,7 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
     noun = _object_part(draft.get("name", "")).replace("_", " ") or "record"
     full = desc_text_of(draft).strip()
     out: List[str] = []
-    if len(full) > 160:
+    if len(full) > _TUNE["long_desc_chars"]:
         sentences = re.split(r"(?<=[.!?])\s+", full)
         rr = reranker()
         if len(sentences) > 1 and not isinstance(rr, NoopReranker):
@@ -182,7 +183,7 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
             out.append(" ".join(rebuilt))
         out.append(f"{full} Applies only to {pk}'s own records; data owned by "
                    f"other products is never returned.")
-        out = [t for t in out if _retention(t, full) >= 0.6]
+        out = [t for t in out if _retention(t, full) >= _TUNE["retention_min"]]
     else:
         out.extend([
             f"{pk.capitalize()}'s own {noun} data for {_an(main_param)}; serves only what {pk} itself stores.",
@@ -203,7 +204,8 @@ def _fieldize(sentence: str, label: str) -> str:
 
 def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
                       threshold: float, field: List[dict], rr,
-                      max_edits: int = 3) -> Optional[str]:
+                      max_edits: int = 3, long_chars: int = 160,
+                      retention_min: float = 0.6) -> Optional[str]:
     """Iterative surgical edit: rework the sentence that collides hardest,
     re-measure worst-case against every nearby tool, then remove the next-worst
     DUPLICATED sentence (the ones most like the other tool are the duplicated
@@ -211,7 +213,7 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
     description verified to land below the threshold while keeping >= 60% of
     the original content words — or None if that is honestly impossible."""
     full = desc_text_of(draft).strip()
-    if len(full) <= 160:
+    if len(full) <= long_chars:
         return None
     sentences = re.split(r"(?<=[.!?])\s+", full)
     if len(sentences) < 2:
@@ -232,7 +234,7 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
         worst_score, blocker = max(
             ((blend_breakdown(rr, {**draft, "description": text}, o)["overall"], o)
              for o in field), key=lambda x: x[0])
-        if worst_score < best_score and _retention(text, full) >= 0.6:
+        if worst_score < best_score and _retention(text, full) >= retention_min:
             best_text, best_score = text, worst_score
         if worst_score < threshold:
             return best_text
@@ -258,13 +260,17 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool,
                       threshold: float = 0.5,
-                      others: Optional[List[dict]] = None) -> dict:
+                      others: Optional[List[dict]] = None,
+                      tune: Optional[dict] = None) -> dict:
     """Never a dead end. Preference order per field: options VERIFIED to land
     below the threshold against every nearby tool; else the best available
     improvements (honestly labeled). If no single field fixes it, try the
     fields COMBINED (rename + new description together); and always leave the
     author a concrete fill-in template plus the consolidate-or-differentiate
     decision when the tools genuinely duplicate each other."""
+    from .tuning import tuning as _tuning
+    t = _tuning(tune)
+    per_field = int(t["per_field_max"])
     rr = reranker()
     neural = not isinstance(rr, NoopReranker)
     other_name = other.get("name", "")
@@ -283,10 +289,10 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     def pick(options):
         # verified fixes ONLY — a row that gets to 84% helps nobody
         if not neural:
-            return options[:3]
+            return options[:per_field]
         fixes = [o for o in options if o["new_overall"] is not None
                  and o["new_overall"] < threshold]
-        return sorted(fixes, key=lambda o: o["new_overall"])[:3]
+        return sorted(fixes, key=lambda o: o["new_overall"])[:per_field]
 
     raw_names = []
     if name_collision:
@@ -306,7 +312,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
 
     full_desc = desc_text_of(draft).strip()
     raw_desc = [{"text": t, "new_overall": predicted({"description": t}),
-                 "keeps_content": _retention(t, full_desc) >= 0.6}
+                 "keeps_content": _retention(t, full_desc) >= _TUNE["retention_min"]}
                 for t in _rewrite_candidates(draft, other, product_key)]
     descriptions = pick(raw_desc)
 
@@ -315,20 +321,26 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
     any_fix = any(is_fix(o) for o in names + titles + descriptions)
 
     if neural and not any_fix and current_overall is not None and current_overall >= threshold:
-        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr)
+        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr,
+                                 max_edits=int(t["max_sentence_edits"]),
+                                 long_chars=int(t["long_desc_chars"]),
+                                 retention_min=t["retention_min"])
         if deep is not None:
             p = predicted({"description": deep})
             if p is not None and p < threshold:
                 descriptions = ([{"text": deep, "new_overall": p,
-                                  "keeps_content": _retention(deep, full_desc) >= 0.6}]
-                                + descriptions)[:3]
+                                  "keeps_content": _retention(deep, full_desc) >= _TUNE["retention_min"]}]
+                                + descriptions)[:per_field]
                 any_fix = True
 
     # ranked complete packages: name + title + description, meaning unchanged,
     # each verified worst-case against every product — the user picks one
     packages = []
     if neural and current_overall is not None and current_overall >= threshold:
-        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr)
+        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr,
+                                 max_edits=int(t["max_sentence_edits"]),
+                                 long_chars=int(t["long_desc_chars"]),
+                                 retention_min=t["retention_min"])
         desc_pool = [o["text"] for o in
                      sorted((o for o in raw_desc if o["new_overall"] is not None
                              and o.get("keeps_content", True)),
@@ -346,10 +358,10 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                                      "new_overall": p})
         packages.sort(key=lambda x: x["new_overall"])
         seen, uniq = set(), []
-        for p in packages:                      # one package per name
-            if p["name"] not in seen:
+        for p in packages:                      # one package per name; must IMPROVE
+            if p["name"] not in seen and p["new_overall"] < round(current_overall, 2):
                 uniq.append(p); seen.add(p["name"])
-        packages = uniq[:3]
+        packages = uniq[:int(t["packages_max"])]
     bundle = packages[0] if packages and packages[0]["new_overall"] < threshold else None
 
     # concrete frame the author can fill in — forces the distinguishing facts

@@ -90,7 +90,7 @@ async def test_global_threshold_setting(client):
     await make_product(client, su, "p1")
     await make_product(client, su, "p2")
     assert (await client.get("/v1/products/p1/settings", headers=su)).json() == \
-        {"similarity_threshold": 0.5}
+        {"similarity_threshold": 0.5, "tuning": None}
     # super admin sets it ONCE -> every product reports the same value
     r = await client.put("/v1/products/p1/settings",
                          json={"similarity_threshold": 0.7}, headers=su)

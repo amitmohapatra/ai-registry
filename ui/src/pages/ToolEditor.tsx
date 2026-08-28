@@ -7,7 +7,7 @@ import { PairBreakdown } from '../components'
 
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
-type Matches = { matches: Similar[]; top_explain: any; threshold?: number
+type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
   suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
@@ -92,7 +92,10 @@ export default function ToolEditor() {
         payload: { ...payload, _entity_id: entityId } })
         .then(setMatches).catch(() => {}).finally(() => setChecking(false))
     }, 500)
-  }, [payload.name, payload.description, payload.input_schema, productKey])
+    // deps cover every field similarity reads: name, title, description,
+    // schema, and audience overrides (audience text can collide on its own)
+  }, [payload.name, payload.title, payload.description, payload.input_schema,
+      JSON.stringify(payload.audiences ?? {}), productKey])
 
   const params: Param[] = useMemo(() => {
     const props = payload.input_schema?.properties ?? {}
@@ -285,6 +288,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
           <b className="score">{top.product_key}/{top.name}</b>
           <span className="muted"> (threshold {Math.round(th * 100)}%{dirty ? ' · based on your unsaved edits — the overlap page shows the saved version' : ''})</span>
+          {(matches as any).flagged_audience && <span className="muted"> · driven by the <b>{(matches as any).flagged_audience}</b> audience's override text</span>}
           {checking && <span className="muted"> · rechecking…</span>}
           {(top as any).breakdown?.contributions && (
             <span style={{ marginLeft: 10, fontWeight: 400 }}>

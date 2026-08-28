@@ -23,6 +23,7 @@ class DraftIn(BaseModel):
 
 class SettingsIn(BaseModel):
     similarity_threshold: float = 0.5
+    tuning: dict | None = None      # optional overrides of app.tuning.DEFAULTS
 
 
 async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
@@ -34,6 +35,15 @@ async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
     if row and "similarity_threshold" in (row.data or {}):
         return float(row.data["similarity_threshold"])
     return get_settings().similarity_threshold
+
+
+async def registry_tuning(db: AsyncSession) -> dict:
+    """All behavioral knobs, meta-driven: defaults from app.tuning merged with
+    any overrides the super admin stored in global settings."""
+    from ..models import GlobalSettings
+    from ..tuning import tuning
+    row = (await db.execute(select(GlobalSettings))).scalars().first()
+    return tuning((row.data or {}).get("tuning") if row else None)
 
 
 @router.get("/settings", response_model=SettingsIn)
@@ -57,7 +67,14 @@ async def set_settings(body: SettingsIn, ctx: tuple = Depends(require_member),
     if not row:
         row = GlobalSettings(id=1)
         db.add(row)
-    row.data = {**(row.data or {}), "similarity_threshold": body.similarity_threshold}
+    from ..tuning import DEFAULTS
+    patch = {"similarity_threshold": body.similarity_threshold}
+    if body.tuning is not None:
+        unknown = set(body.tuning) - set(DEFAULTS)
+        if unknown:
+            raise HTTPException(422, f"Unknown tuning keys: {', '.join(sorted(unknown))}")
+        patch["tuning"] = body.tuning
+    row.data = {**(row.data or {}), **patch}
     await db.commit()
     await audit(db, actor, "settings.set", "global", product.id,
                 {"similarity_threshold": body.similarity_threshold})
@@ -78,12 +95,29 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     vec = (await embedder().embed([text]))[0]
     cands = await _candidates(db, "")
     exclude = payload.get("_entity_id")            # editing an existing tool: skip itself
-    matches = rank(vec, text, cands, top_k=10, exclude_id=exclude)
+    tune = await registry_tuning(db)
+    matches = rank(vec, text, cands, top_k=int(tune["candidate_top_k"]), exclude_id=exclude)
     matches = apply_rerank(payload, matches,
                            {c["id"]: c["payload"] for c in cands})
     for m in matches:
         m["name_sim"] = name_similarity(payload.get("name", ""), m["name"])
     threshold = await product_threshold(db, product.id)
+
+    # audience overlays can override description/title — an audience's text can
+    # collide even when the base text is clean, so the WORST variant drives
+    flagged_audience = None
+    for aud_key, ov in (payload.get("audiences") or {}).items():
+        o = (ov or {}).get("overrides") or {}
+        if not (o.get("description") or o.get("title")):
+            continue
+        variant = {**payload}
+        variant.update({k: o[k] for k in ("description", "title") if o.get(k)})
+        v_matches = apply_rerank(variant, [dict(m) for m in matches],
+                                 {c["id"]: c["payload"] for c in cands})
+        if v_matches and matches and v_matches[0]["score"] > matches[0]["score"]:
+            matches = v_matches
+            payload = variant                       # suggestions target the worst text
+            flagged_audience = aud_key
     top_explain = None
     if matches and matches[0]["score"] >= min(0.4, threshold):
         other = await db.get(Entity, matches[0]["id"])
@@ -104,10 +138,11 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                 nearby = [by_id[m["id"]] for m in matches if m["id"] in by_id]
                 suggestions = build_suggestions(
                     payload, other.payload, product.key, taken,
-                    name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold,
-                    threshold=threshold, others=nearby)
+                    name_collision=(top.get("name_sim") or 0) >= tune["name_collision_sim"]
+                        or top["score"] >= threshold,
+                    threshold=threshold, others=nearby, tune=tune)
     return {"matches": matches, "top_explain": top_explain, "threshold": threshold,
-            "suggestions": suggestions}
+            "flagged_audience": flagged_audience, "suggestions": suggestions}
 
 # ---------- pairwise explain (saved entities) ----------
 
