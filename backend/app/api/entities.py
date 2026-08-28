@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import overlay as ov
 from ..db import get_session
-from ..deps import require_member, require_product_admin
+from ..deps import current_user, require_member, require_product_admin
 from ..models import Entity, EntityVersion
 from ..schemas import DryRunOut, EntityIn, EntityOut, EntityPatch, SimilarOut, VersionOut
 from ..services import audience_keys, audit, delete_entity, write_entity
@@ -219,16 +219,42 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
     return ranked
 
 
+async def _build_duplicates(db: AsyncSession, threshold: float,
+                            within_product_id: str = "",
+                            involving_key: str = "") -> dict:
+    """Shared report builder. within_product_id: both sides in that product.
+    involving_key: at least one side in that product. Neither: whole registry."""
+    from .ai import product_threshold
+    cands = await _candidates(db, within_product_id)
+    th = threshold or await product_threshold(db)
+    # cosine casts a wide net (lower floor), the field-blend gives the final say
+    pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
+    pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
+    pairs = [p for p in pairs if p["score"] >= th]
+    if involving_key:
+        pairs = [p for p in pairs
+                 if involving_key in (p["a"]["product_key"], p["b"]["product_key"])]
+    return {"threshold": th, "pairs": pairs}
+
+
 @router.get("/reports/duplicates")
 async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = Depends(get_session),
                      scope: str = Query(default="all", pattern="^(product|all)$"),
                      threshold: float = Query(default=0.0)):
+    """A product's view: its own overlaps only. scope=product: both sides here;
+    scope=all: pairs INVOLVING this product (never unrelated products' pairs)."""
     product, _, _ = ctx
-    from .ai import product_threshold
-    cands = await _candidates(db, product.id if scope == "product" else "")
-    th = threshold or await product_threshold(db, product.id)
-    # cosine casts a wide net (lower floor), the cross-encoder gives the final say
-    pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
-    pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
-    pairs = [p for p in pairs if p["score"] >= th]
-    return {"threshold": th, "pairs": pairs}
+    if scope == "product":
+        return await _build_duplicates(db, threshold, within_product_id=product.id)
+    return await _build_duplicates(db, threshold, involving_key=product.key)
+
+
+registry_reports = APIRouter(prefix="/v1/reports", tags=["entities"])
+
+
+@registry_reports.get("/duplicates")
+async def duplicates_all(db: AsyncSession = Depends(get_session),
+                         _: object = Depends(current_user),
+                         threshold: float = Query(default=0.0)):
+    """Registry-wide overlaps — surfaced on the Products page."""
+    return await _build_duplicates(db, threshold)

@@ -85,7 +85,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
-    for r in (auth.router, products.router, entities.router, manifest.router, audit.router, ai.router):
+    for r in (auth.router, products.router, entities.router, entities.registry_reports, manifest.router, audit.router, ai.router):
         app.include_router(r)
 
     from fastapi.exceptions import RequestValidationError

@@ -175,3 +175,28 @@ def test_suggestions_never_repeat_name_tokens():
     for n in suggest_names(draft, other, "shipping", {"get_invoice"}):
         toks = n.lower().split("_")
         assert len(toks) == len(set(toks)), n     # no token appears twice
+
+
+async def test_overlap_scoping_per_product_and_global(client):
+    """A product page never shows other products' unrelated pairs; the global
+    report (Products page) shows everything."""
+    su = await login(client)
+    mk = lambda n, d: {"name": n, "description": d,
+                       "input_schema": {"type": "object", "properties": {}}}
+    for pk in ("alpha", "beta"):
+        await make_product(client, su, pk)
+    await client.post("/v1/products/beta/entities", headers=su,
+        json={"type": "tool", "payload": mk("send_alert", "Send an alert notification to a user.")})
+    await client.post("/v1/products/beta/entities", headers=su,
+        json={"type": "tool", "payload": mk("notify_user", "Send an alert notification to a user.")})
+    await client.post("/v1/products/alpha/entities", headers=su,
+        json={"type": "tool", "payload": mk("rotate_logs", "Rotate server log files weekly.")})
+    rep = (await client.get("/v1/products/alpha/entities/reports/duplicates",
+                            headers=su)).json()
+    assert rep["pairs"] == []                               # alpha never sees beta's pair
+    rep = (await client.get("/v1/products/beta/entities/reports/duplicates",
+                            headers=su)).json()
+    assert len(rep["pairs"]) == 1
+    rep = (await client.get("/v1/reports/duplicates", headers=su)).json()
+    assert any({p["a"]["name"], p["b"]["name"]} == {"send_alert", "notify_user"}
+               for p in rep["pairs"])

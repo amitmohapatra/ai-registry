@@ -38,30 +38,21 @@ export function ConfirmButton({ label, confirmLabel = 'Sure?', title, onConfirm,
 export function PairBreakdown({ ex }: { ex: any }) {
   const pct = (v: number) => `${Math.round(v * 100)}%`
   const order = ['description', 'parameters', 'name', 'title']
-  const fields = order.filter(f => f in (ex.subscores ?? {}))
+  const fields = order.filter(f => f in (ex.contributions ?? {}))
   const sevClass = (s: string) => s === 'high' ? 'err' : s === 'medium' ? 'warn' : 'note'
   return (
     <div>
       {ex.contributions && (
-        <table style={{ maxWidth: 460, marginBottom: 6 }}>
-          <tbody>
-            {fields.map(f => (
-              <tr key={f}>
-                <td style={{ border: 0, padding: '2px 8px 2px 0' }} className="muted">{f}</td>
-                <td style={{ border: 0, padding: '2px 8px' }}><b className="score">{pct(ex.subscores[f])}</b></td>
-                <td style={{ border: 0, padding: '2px 8px' }} className="muted">
-                  → {pct(ex.contributions[f] ?? 0)} of total
-                  {f === 'parameters' && (ex.shared?.parameters?.length ?? 0) === 0 && ex.params && (
-                    <span> — nothing shared (this: {ex.params.a.join(', ') || 'none'} · other: {ex.params.b.join(', ') || 'none'})</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            <tr><td style={{ border: 0, padding: '2px 8px 2px 0' }} className="muted">overall</td>
-              <td style={{ border: 0, padding: '2px 8px' }}><b className="score">{pct(ex.overall ?? 0)}</b></td>
-              <td style={{ border: 0, padding: '2px 8px' }} className="muted">weighted total</td></tr>
-          </tbody>
-        </table>
+        <p style={{ margin: '2px 0 6px' }}>
+          {fields.map(f => (
+            <span key={f} className="param-op" style={{ marginRight: 6 }}
+              title={`${f}: ${pct(ex.subscores?.[f] ?? 0)} similar${f === 'parameters' && ex.params
+                ? ` (this: ${ex.params.a.join(', ') || 'none'} · other: ${ex.params.b.join(', ') || 'none'})` : ''}`}>
+              {f} {pct(ex.contributions[f] ?? 0)}
+            </span>
+          ))}
+          <b className="score">= {pct(ex.overall ?? 0)}</b>
+        </p>
       )}
       {ex.shared?.terms?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
         Common terms: {ex.shared.terms.slice(0, 8).map((t: string) =>

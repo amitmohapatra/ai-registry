@@ -119,9 +119,9 @@ function Duplicates({ productKey }: { productKey: string }) {
         <div className="row">
           {report && <span className="muted">flagging ≥ {pct(report.threshold)} — adjust in
             Manage → Similarity</span>}
-          <select style={{ width: 200 }} value={scope} onChange={e => setScope(e.target.value)}>
-            <option value="all">Across all products</option>
-            <option value="product">Within this product</option>
+          <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
+            <option value="all">Involving this product</option>
+            <option value="product">Within this product only</option>
           </select>
         </div>
       </div>
