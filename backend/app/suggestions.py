@@ -65,10 +65,19 @@ def _distinct_tokens(draft: dict, other: dict) -> List[str]:
         return by_salience
 
 
+def _object_part(name: str) -> str:
+    """'retrieve_invoice_details' -> 'invoice_details' (drop action verbs)."""
+    tokens = name.replace("-", "_").split("_")
+    kept = [t for t in tokens if t and not is_action_word(t)]
+    return "_".join(kept) or name
+
+
 def suggest_names(draft: dict, other: dict, product_key: str,
                   taken: Set[str]) -> List[str]:
-    """Up to 3 alternative names: qualified by what's genuinely different, or
-    domain-prefixed. Every suggestion is unique across the whole registry."""
+    """Meaning-safe renames: the tool keeps meaning EXACTLY and gains an
+    ownership scope — 'payments_invoice_details' says whose data it is.
+    Topic-word suffixes ('_overdue', '_subtotal') are never generated: they
+    would change what the tool claims to do."""
     current = draft.get("name", "")
     taken_l = {t.lower() for t in taken}
     out: List[str] = []
@@ -79,17 +88,14 @@ def suggest_names(draft: dict, other: dict, product_key: str,
                 and _NAME_RE.match(c) and c not in out):
             out.append(c)
 
-    current_tokens = set(current.lower().replace("-", "_").split("_"))
-    for tok in _distinct_tokens(draft, other):
-        if tok in current_tokens:
-            continue                              # never fetch_invoice_retrieve_retrieve
-        consider(f"{current}_{tok}")
-        if len(out) >= 3:
-            break
-    consider(f"{product_key.replace('-', '_')}_{current}")
-    base = current.split("_")
-    if len(base) > 1:                       # reorder: object-first variant
-        consider("_".join(base[1:] + base[:1]))
+    pk = product_key.replace("-", "_")
+    base = _object_part(current)
+    consider(f"{pk}_{base}")          # payments_invoice_details
+    consider(f"{pk}_{current}")       # payments_retrieve_invoice_details
+    consider(f"{base}_{pk}")          # invoice_details_payments
+    parts = current.split("_")
+    if len(parts) > 1:
+        consider("_".join(parts[1:] + parts[:1]))
     return out[:3]
 
 
@@ -145,9 +151,8 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
     main_param = (params[0].replace("_", " ") if params else "identifier")
     if not d:
         return []
-    a1 = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
-    a2 = (f"{d[2]} {d[3]}" if len(d) >= 4 else (d[2] if len(d) >= 3 else a1))
     pk = product_key
+    noun = _object_part(draft.get("name", "")).replace("_", " ") or "record"
     full = desc_text_of(draft).strip()
     out: List[str] = []
     if len(full) > 160:
@@ -158,24 +163,22 @@ def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]
             worst = max(range(len(sentences)), key=lambda i: sims[i])
         else:
             worst = 0
-        leads = [
-            f"Look up the {a1} information that {pk} keeps for a specific {main_param}.",
-            f"{pk.capitalize()}-scoped record view centred on {a1}, keyed by {main_param}.",
-            f"{pk.capitalize()} reference for {a2} data tied to one {main_param}.",
+        leads = [                                # ownership scope, meaning intact
+            f"{pk.capitalize()}'s own {noun} record for {_an(main_param)} — the copy of this data that {pk} itself stores and serves.",
+            f"Look up the {noun} that {pk} maintains for a specific {main_param}; this is {pk}'s system of record, not another product's.",
+            f"{pk.capitalize()}-owned {noun} lookup, keyed by {main_param}.",
         ]
         for lead in leads:                       # rework ONLY the offending sentence
             rebuilt = sentences[:worst] + [lead] + sentences[worst + 1:]
             out.append(" ".join(rebuilt))
-        out.append(f"{full} Applies only to {pk}'s own {a1} records; data owned by "
+        out.append(f"{full} Applies only to {pk}'s own records; data owned by "
                    f"other products is never returned.")
         out = [t for t in out if _retention(t, full) >= 0.6]
     else:
         out.extend([
-            f"{a1.capitalize()} lookup for {pk}: returns the {a1} record matching {_an(main_param)}.",
-            f"Read-only access to {pk}'s {a1} data, keyed by {main_param}.",
-            f"{pk.capitalize()}-side query that resolves {_an(main_param)} to its {a2} entry.",
-            f"Reports the {a2} held by {pk} for one {main_param}; nothing else is returned.",
-            f"Look up the {a1} held in {pk} for a specific {main_param}; no other record types are returned.",
+            f"{pk.capitalize()}'s own {noun} data for {_an(main_param)}; serves only what {pk} itself stores.",
+            f"Look up the {noun} that {pk} maintains for a specific {main_param}; {pk}'s system of record, not another product's.",
+            f"{pk.capitalize()}-owned {noun} lookup, keyed by {main_param}; no other product's data is returned.",
         ])
     return [_dedupe_words(t) for t in dict.fromkeys(out)]
 
@@ -207,11 +210,11 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
     d = _distinct_tokens(draft, other)
     if not d:
         return None
-    a1 = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
+    noun = _object_part(draft.get("name", "")).replace("_", " ") or "record"
     params = list((draft.get("input_schema") or {}).get("properties", {}))
     main_param = (params[0].replace("_", " ") if params else "identifier")
-    lead = (f"{product_key.capitalize()}-scoped record view centred on {a1}, "
-            f"keyed by {main_param}.")
+    lead = (f"{product_key.capitalize()}'s own {noun} record for {_an(main_param)} — "
+            f"the copy of this data that {product_key} itself stores and serves.")
     current = list(sentences)
     edited: set = set()
     for step in range(max_edits + 1):
@@ -282,12 +285,8 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                               "new_overall": predicted({"name": n, "title": humanize(n)})})
     names = pick(raw_names)
 
-    d = _distinct_tokens(draft, other)
-    title_texts = [humanize(n["name"]) for n in names]
-    if d:
-        title_texts.append(f"{humanize(draft.get('name', ''))} ({d[0]})")
-        if len(d) > 1:
-            title_texts.append(f"{d[0].capitalize()} {d[1]} — {humanize(draft.get('name', ''))}")
+    cur_title = draft.get("title") or humanize(draft.get("name", ""))
+    title_texts = [f"{cur_title} ({product_key.capitalize()})"] + [humanize(n["name"]) for n in names]
     titles = pick([{"title": t, "new_overall": predicted({"title": t})}
                    for t in dict.fromkeys(title_texts) if t != draft.get("title")])
 

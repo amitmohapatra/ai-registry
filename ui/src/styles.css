@@ -301,3 +301,21 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
 
 .keep-tag { flex-shrink: 0; font-size: 10.5px; font-weight: 600; color: #1e8e3e;
   background: #e6f4ea; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+
+/* ---- recommended resolution card ---- */
+.resolve-card { margin-top: 10px; padding: 14px 16px; background: #fff;
+  border: 1px solid #c6e7cf; border-radius: 10px; font-size: 13px; }
+.resolve-head { display: flex; align-items: center; gap: 6px; font-weight: 600;
+  color: #188038; flex-wrap: wrap; }
+.resolve-table { margin-top: 10px; width: auto; }
+.resolve-table th { text-transform: none; letter-spacing: 0; font-size: 12px;
+  color: var(--muted); padding: 6px 14px 6px 0; height: auto; border: 0; }
+.resolve-table td { padding: 6px 10px 6px 0; height: auto; border: 0; font-weight: 400; }
+.resolve-table td.cur { color: var(--muted); max-width: 260px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.resolve-table td.arr { color: var(--faint); }
+.resolve-desc { margin-top: 8px; padding: 10px 12px; background: #f8f9fa;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px;
+  line-height: 1.55; white-space: pre-wrap; }
+
+.resolve-card.dup { border-color: var(--border-strong); }

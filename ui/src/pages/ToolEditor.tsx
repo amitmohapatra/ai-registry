@@ -259,42 +259,12 @@ function SimilarPanel({ entityId, matches }:
   )
 }
 
-type SuggOption = { text: string; hover: string; pct: number | null; tag?: string; apply: () => void }
-
-function SuggGroup({ label, current, threshold, options }:
-  { label: string; current: number; threshold: number; options: SuggOption[] }) {
-  const P = (x: number) => `${Math.round(x * 100)}%`
-  void threshold
-  return (
-    <div className="sugg-group">
-      <span className="sugg-label">{label}</span>
-      <div className="sugg-options">
-        {options.map(o => (
-          <div key={o.text} className="sugg-option">
-            <span className="sugg-text" title={o.hover}>{o.text}</span>
-            {o.pct != null && (
-              <span className="sugg-outcome" title={`Applying this changes the match from ${P(current)} to ${P(o.pct)} — below your threshold`}>
-                <s className="muted">{P(current)}</s>
-                <span className="sugg-arrow">→</span>
-                <span className="delta ok">{P(o.pct)} ✓ fixes it</span>
-              </span>
-            )}
-            <button className="icon-act" title="Apply this suggestion" aria-label="Apply"
-              onClick={o.apply}>✓</button>
-            <button className="icon-act" title="Copy to clipboard" aria-label="Copy"
-              onClick={() => { navigator.clipboard.writeText(o.text); toast('Copied') }}>⧉</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 /* ---------- base form ---------- */
 function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [wasFlagged, setWasFlagged] = useState(false)
+  const [showResDesc, setShowResDesc] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   const th = matches?.threshold ?? 0.5
@@ -328,72 +298,67 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 ))}
             </span>
           )}
-          {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
-            matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
-            <div className="sugg-panel">
-              <div className="sugg-head">{matches.suggestions?.bundle
-                ? <>Verified fix — apply name, title and description together and this drops below your {Math.round(th * 100)}% threshold (checked against every product)</>
-                : (matches.suggestions?.names?.length || matches.suggestions?.titles?.length || matches.suggestions?.descriptions?.length)
-                  ? <>Verified fixes — applying any option drops the match below your {Math.round(th * 100)}% threshold (checked against every product)</>
-                  : <>No wording alone fixes this — use the template below, or reconsider whether this tool duplicates an existing one</>}</div>
-              {matches.suggestions?.bundle && (
-            <div className="bundle-row">
-              <span className="dot green" />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <b>Apply all three</b> — name <b className="score">{matches.suggestions.bundle.name}</b>, its title,
-                and an updated description (hover to read it)
-                <span className="sugg-outcome" style={{ marginLeft: 8 }}
-                  title={matches.suggestions.bundle.description}>
-                  <s className="muted">{Math.round(top.score * 100)}%</s>
-                  <span className="sugg-arrow">→</span>
-                  <span className="delta ok">{Math.round(matches.suggestions.bundle.new_overall * 100)}% ✓ fixes it</span>
-                </span>
-              </span>
-              <button className="icon-act" title="Apply name, title and description together" aria-label="Apply combined fix"
-                onClick={() => set({ name: matches.suggestions!.bundle!.name,
-                  title: matches.suggestions!.bundle!.title,
-                  description: matches.suggestions!.bundle!.description })}>✓</button>
-            </div>
-          )}
-              {matches.suggestions?.names?.length ? (
-                <SuggGroup label="Name" current={top.score} threshold={th} options={matches.suggestions.names.map((o: any) => ({
-                  text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,
-                  pct: o.new_overall, apply: () => set({ name: o.name, title: o.title }) }))} />
-              ) : null}
-              {matches.suggestions?.titles?.length ? (
-                <SuggGroup label="Title" current={top.score} threshold={th} options={matches.suggestions.titles.map((o: any) => ({
-                  text: o.title, hover: o.title, pct: o.new_overall,
-                  apply: () => set({ title: o.title }) }))} />
-              ) : null}
-              {matches.suggestions?.descriptions?.length ? (
-                <SuggGroup label="Description" current={top.score} threshold={th} options={matches.suggestions.descriptions.map((o: any) => ({
-                  text: o.text, hover: o.text, pct: o.new_overall,
-                  apply: () => set({ description: o.text }) }))} />
-              ) : matches.suggestions?.description_tip ? (
-                <div className="sugg-row"><span className="sugg-label">Description</span>
-                  <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span></div>
-              ) : null}
-            </div>
-          ) : null}
-          {matches.suggestions?.template && (
-            <div className="template-box">
-              <div className="sugg-label" style={{ marginBottom: 4 }}>Write it yourself</div>
-              <span style={{ flex: 1, minWidth: 0 }}>Fill this frame with your facts — data source, when to use it,
-                what it never does — and the score drops:</span>
-              <div className="template-text">
-                <code>{matches.suggestions.template}</code>
-                <button className="icon-act" title="Copy template" aria-label="Copy template" onClick={() => {
-                  navigator.clipboard.writeText(matches.suggestions!.template!); toast('Copied')
-                }}>⧉</button>
+          {matches.suggestions && (() => {
+            const sg = matches.suggestions
+            const desc = sg.descriptions?.[0]
+            const res = sg.bundle
+              ?? (desc && desc.new_overall != null && desc.new_overall < th
+                    ? { description: desc.text, new_overall: desc.new_overall } as any
+                    : null)
+            const P = (x: number) => `${Math.round(x * 100)}%`
+            if (res) return (
+              <div className="resolve-card">
+                <div className="resolve-head">
+                  <span className="dot green" /> Recommended resolution
+                  <span className="muted" style={{ fontWeight: 400 }}> — same meaning, scoped to this product; verified against every product</span>
+                  <span className="delta ok" style={{ marginLeft: 'auto' }}
+                    title={`The match drops from ${P(top.score)} to ${P(res.new_overall)}, below your ${P(th)} threshold`}>
+                    resolves it ✓</span>
+                </div>
+                <table className="resolve-table"><tbody>
+                  {res.name && (
+                    <tr><th>Name</th>
+                      <td className="cur">{payload.name}</td><td className="arr">→</td>
+                      <td><b className="score">{res.name}</b></td></tr>
+                  )}
+                  {res.title && (
+                    <tr><th>Title</th>
+                      <td className="cur">{payload.title || '—'}</td><td className="arr">→</td>
+                      <td>{res.title}</td></tr>
+                  )}
+                  <tr><th>Description</th>
+                    <td className="cur">your text</td><td className="arr">→</td>
+                    <td>your meaning, reworded to say it is this product's own data
+                      {' '}<button className="small" onClick={() => setShowResDesc(v => !v)}>
+                        {showResDesc ? 'Hide' : 'View'}</button></td></tr>
+                </tbody></table>
+                {showResDesc && <div className="resolve-desc">{res.description}</div>}
+                <div style={{ marginTop: 10 }}>
+                  <button className="primary" onClick={() => {
+                    const patch: any = { description: res.description }
+                    if (res.name) patch.name = res.name
+                    if (res.title) patch.title = res.title
+                    set(patch); toast('Resolution applied — review and Save & publish')
+                  }}>Resolve</button>
+                </div>
               </div>
-            </div>
-          )}
-          {matches.suggestions?.resolution_hint && (
-            <div className="sugg-row">
-              <span className="sugg-label">To resolve</span>
-              <span style={{ fontWeight: 400 }}>{matches.suggestions.resolution_hint}</span>
-            </div>
-          )}
+            )
+            return (
+              <div className="resolve-card dup">
+                <div className="resolve-head" style={{ color: '#3c4043' }}>These two tools appear to do the same thing</div>
+                <p style={{ margin: '6px 0', fontWeight: 400 }}>
+                  A wording change that keeps your meaning cannot make them look different.
+                  Recommend reusing <b className="score">{top.product_key}/{top.name}</b> instead —
+                  or, if this tool truly differs, say how:</p>
+                {sg.template && <div className="template-text">
+                  <code>{sg.template}</code>
+                  <button className="icon-act" title="Copy template" aria-label="Copy template" onClick={() => {
+                    navigator.clipboard.writeText(sg.template!); toast('Copied')
+                  }}>⧉</button>
+                </div>}
+              </div>
+            )
+          })()}
         </div>
       )}
       {!flagged && wasFlagged && top && (
