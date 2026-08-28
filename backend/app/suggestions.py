@@ -6,7 +6,7 @@ instead' is always safe to click."""
 import re
 from typing import List, Optional, Set
 
-from .similarity import desc_text_of
+from .similarity import desc_text_of, name_similarity
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -73,9 +73,21 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool) -> dict:
-    names = suggest_names(draft, other, product_key, taken) if name_collision else []
+    """Per-section recommendations. Every suggested name is VALIDATED before
+    being offered: unique across all products, and its predicted match against
+    the conflicting tool must be a real improvement (reported as new_match)."""
+    other_name = other.get("name", "")
+    current_sim = name_similarity(draft.get("name", ""), other_name)
+    names = []
+    if name_collision:
+        for n in suggest_names(draft, other, product_key, taken):
+            predicted = name_similarity(n, other_name)
+            if predicted < current_sim - 0.1:          # only offer genuine improvements
+                names.append({"name": n, "title": humanize(n),
+                              "new_match": round(predicted, 2)})
     return {
         "names": names,
-        "titles": {n: humanize(n) for n in names},
+        "title_tip": (f"Give it a title that says what makes it different — e.g. "
+                      f"'{humanize(names[0]['name'])}'" if names else None),
         "description_tip": description_tip(draft, other),
     }

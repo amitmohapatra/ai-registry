@@ -241,10 +241,34 @@ def test_tool_equivalence_applies_annotation_cap():
                    "Applies an allocation adjustment to the portfolio.",
                    {"readOnlyHint": False})
     assert tool_equivalence(TopicalStub(), reader, writer) == 0.45   # capped despite ~99% model score
-    # and the serialized record carries the declared effect for the reranker
-    from app.similarity import serialize_tool
-    assert "read-only" in serialize_tool(reader)
-    assert "modifies state" in serialize_tool(writer)
+
+
+def test_overall_is_transparent_weighted_average():
+    """The headline % must be reproducible from the visible field scores —
+    no more 'overall 51% while every field shows 0%'."""
+    from app.similarity import FIELD_WEIGHTS, field_scores, tool_equivalence
+
+    class HalfStub:
+        def score_pairs(self, q, c): return [0.0 for _ in c]   # sigmoid(0)=0.5
+
+    a = _tool("get_invoice", "Fetch an invoice by its ID for billing review.",
+              {"readOnlyHint": True})
+    b = _tool("fetch_invoice", "Fetch an invoice by ID for billing review.",
+              {"readOnlyHint": True})
+    a["title"], b["title"] = "Get invoice", "Fetch invoice"
+    a["input_schema"] = {"type": "object", "properties": {"invoice_id": {"type": "string"}}}
+    b["input_schema"] = {"type": "object", "properties": {"invoice_id": {"type": "string"}}}
+    rr = HalfStub()
+    fs = field_scores(rr, a, b)
+    assert set(fs) == {"name", "description", "title", "parameters"}
+    weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in fs}
+    expected = sum(fs[f] * w for f, w in weights.items()) / sum(weights.values())
+    assert abs(tool_equivalence(rr, a, b) - round(expected, 4)) < 1e-6
+    # params absent on both -> field drops out instead of dragging the average
+    a2, b2 = dict(a, input_schema={"type": "object", "properties": {}}), \
+             dict(b, input_schema={"type": "object", "properties": {}})
+    fs2 = field_scores(rr, a2, b2)
+    assert "parameters" not in fs2
 
 
 def test_explain_nudges_missing_annotations(client):

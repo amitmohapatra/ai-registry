@@ -96,7 +96,7 @@ export const api = {
   similar: (pk: string, id: string, scope: string) => req<Similar[]>('GET', `/v1/products/${pk}/entities/${id}/similar?scope=${scope}`),
   duplicates: (pk: string, scope: string, threshold?: number) => req<{ threshold: number; pairs: any[] }>('GET', `/v1/products/${pk}/entities/reports/duplicates?scope=${scope}${threshold ? `&threshold=${threshold}` : ''}`),
   audit: (pk: string) => req<any[]>('GET', `/v1/products/${pk}/audit`),
-  similarPreview: (pk: string, draft: any) => req<{ matches: Similar[]; top_explain: any; threshold?: number; suggestions?: { names: string[]; titles: Record<string, string>; description_tip: string } | null }>('POST', `/v1/products/${pk}/entities/similar-preview`, draft),
+  similarPreview: (pk: string, draft: any) => req<{ matches: Similar[]; top_explain: any; threshold?: number; suggestions?: { names: { name: string; title: string; new_match: number }[]; title_tip?: string | null; description_tip: string } | null }>('POST', `/v1/products/${pk}/entities/similar-preview`, draft),
   explainPair: (pk: string, id: string, otherId: string) => req<any>('GET', `/v1/products/${pk}/entities/${id}/explain/${otherId}`),
   settingsGet: (pk: string) => req<{ similarity_threshold: number }>('GET', `/v1/products/${pk}/settings`),
   settingsSet: (pk: string, s: any) => req<void>('PUT', `/v1/products/${pk}/settings`, s),

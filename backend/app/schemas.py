@@ -33,7 +33,7 @@ class ChannelConfigIn(BaseModel):
     channel_prefix: str = "registry"
 
 class ProductIn(BaseModel):
-    key: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
+    key: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{1,63}$")
     name: str
     description: str = ""
 

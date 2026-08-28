@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, downloadExport, errorText, Product, User } from '../api'
+import { validateProductKey } from '../validators'
 import { toast } from '../App'
 import { ConfirmButton } from '../components'
 
@@ -13,6 +14,8 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
+    const invalid = validateProductKey(key)
+    if (invalid) { setErr(invalid); return }            // same message as the backend
     try { await api.createProduct({ key, name: name || key }); setKey(''); setName(''); load(); onCreated?.() }
     catch (ex: any) { setErr(errorText(ex)) }
   }

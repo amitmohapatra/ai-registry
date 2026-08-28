@@ -124,12 +124,14 @@ async def test_suggestions_on_flagged_draft(client):
     assert s and s["names"], body
     import re
     existing = {"get_invoice", "get_invoice_pdf"}
-    for n in s["names"]:
-        assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", n)
-        assert n.lower() not in existing            # collision-free across products
-        assert s["titles"][n][0].isupper()          # human title provided
+    for item in s["names"]:
+        assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", item["name"])
+        assert item["name"].lower() not in existing   # collision-free across products
+        assert item["title"][0].isupper()             # human title provided
+        assert 0 <= item["new_match"] < 0.9           # VALIDATED: predicted improvement
+    assert s["title_tip"]                             # per-section: title recommendation
     # distinct angle surfaces in both a name and the tip
-    assert any("archive" in n or "ledger" in n for n in s["names"])
+    assert any("archive" in i["name"] or "ledger" in i["name"] for i in s["names"])
     assert "archive" in s["description_tip"] or "ledger" in s["description_tip"]
     # a clearly novel draft gets NO suggestions block
     r = await client.post("/v1/products/shipping/entities/similar-preview",

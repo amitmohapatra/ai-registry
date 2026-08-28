@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, User } from '../api'
+import { errorText } from '../api'
+import { validatePassword } from '../validators'
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
@@ -10,8 +12,10 @@ export default function UsersPage() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
+    const invalid = validatePassword(form.password)
+    if (invalid) { setErr(invalid); return }
     try { await api.createUser(form); setForm({ email: '', name: '', password: '', is_super_admin: false }); load() }
-    catch (ex: any) { setErr(String(ex.detail ?? 'Failed to create user')) }
+    catch (ex: any) { setErr(errorText(ex)) }
   }
 
   return (

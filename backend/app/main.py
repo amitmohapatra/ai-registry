@@ -38,6 +38,32 @@ async def lifespan(app: FastAPI):
     yield
 
 
+_FIELD_NAMES = {"key": "Product key", "email": "Email", "password": "Password",
+                "name": "Name", "role": "Role", "payload": "Tool definition",
+                "similarity_threshold": "Similarity threshold"}
+
+_FRIENDLY = {
+    ("password", "string_too_short"): "Password needs at least 6 characters.",
+    ("key", "string_pattern_mismatch"): ("Product key must start with a letter and may "
+                                         "contain letters, numbers, underscores and hyphens."),
+    ("key", "string_too_short"): "Product key needs at least 2 characters.",
+    ("email", "value_error"): "Enter a valid email address.",
+    ("role", "string_pattern_mismatch"): "Role must be 'admin' or 'user'.",
+}
+
+
+def _friendly_errors(errors) -> list:
+    out = []
+    for e in errors:
+        field = str(e["loc"][-1]) if e.get("loc") else ""
+        msg = _FRIENDLY.get((field, e.get("type", "")))
+        if not msg:
+            label = _FIELD_NAMES.get(field, field.replace("_", " ").capitalize() or "Input")
+            msg = f"{label}: {e.get('msg', 'invalid value')}"
+        out.append({"loc": e.get("loc", []), "msg": msg, "type": e.get("type", "")})
+    return out
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=get_settings().app_name,
@@ -61,6 +87,13 @@ def create_app() -> FastAPI:
                        allow_headers=["*"])
     for r in (auth.router, products.router, entities.router, manifest.router, audit.router, ai.router):
         app.include_router(r)
+
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(RequestValidationError)
+    async def humane_validation_errors(request, exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"detail": _friendly_errors(exc.errors())})
 
     @app.get("/healthz")
     async def health():

@@ -7,7 +7,7 @@ import SchemaTree from '../SchemaTree'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: string[]; titles: Record<string, string>; description_tip: string } | null }
+  suggestions?: { names: { name: string; title: string; new_match: number }[]; title_tip?: string | null; description_tip: string } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -181,9 +181,9 @@ function SimilarPanel({ productKey, entityId, matches }:
   { productKey: string; entityId?: string; matches: Matches | null }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<Record<string, any>>({})
-  const visible = (matches?.matches ?? []).filter(m => m.score >= 0.3)
+  const th = matches?.threshold ?? 0.5
+  const visible = (matches?.matches ?? []).filter(m => m.score >= th * 0.6)
   if (!matches || visible.length === 0) return null
-  const th = matches.threshold ?? 0.5
 
   const toggle = async (m: Similar) => {
     if (open === m.id) { setOpen(''); return }
@@ -260,12 +260,12 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}
           {matches.suggestions?.names?.length ? (
             <div style={{ marginTop: 8 }}>
-              You could use instead:{' '}
-              {matches.suggestions.names.map((n: string) => (
-                <button key={n} className="small" style={{ marginRight: 6 }}
-                  title={`Rename to ${n}`}
-                  onClick={() => set({ name: n, title: matches.suggestions!.titles[n] })}>
-                  {n}</button>
+              Names you could use instead (click to apply — new name match shown):{' '}
+              {matches.suggestions.names.map((s: { name: string; title: string; new_match: number }) => (
+                <button key={s.name} className="small" style={{ marginRight: 6 }}
+                  title={`Rename to ${s.name}, title "${s.title}"`}
+                  onClick={() => set({ name: s.name, title: s.title })}>
+                  {s.name} · {Math.round(s.new_match * 100)}%</button>
               ))}
             </div>
           ) : null}

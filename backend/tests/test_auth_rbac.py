@@ -227,3 +227,18 @@ async def test_api_key_reveal_for_copy(client):
     bob = await login(client, "bob@co.com", "secret1")
     assert (await client.get("/v1/products/billing/api-keys/reveal",
                              headers=bob)).status_code == 403
+
+
+async def test_friendly_validation_messages(client):
+    su = await login(client)
+    # short password -> plain-English message
+    r = await client.post("/v1/auth/users",
+                          json={"email": "x@co.com", "password": "abc"}, headers=su)
+    assert r.status_code == 422
+    msgs = [e["msg"] for e in r.json()["detail"]]
+    assert "Password needs at least 6 characters." in msgs
+    # bad product key -> meaningful message, and underscores are now ALLOWED
+    r = await client.post("/v1/products", json={"key": "9bad", "name": "X"}, headers=su)
+    assert any("start with a letter" in e["msg"] for e in r.json()["detail"])
+    r = await client.post("/v1/products", json={"key": "my_product", "name": "X"}, headers=su)
+    assert r.status_code == 201

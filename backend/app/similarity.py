@@ -128,13 +128,18 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
                                        "on", "with", "and", "or", "its", "is", "it")}
 
     a_desc, b_desc = a.get("description", ""), b.get("description", "")
-    name_sim = cos(a.get("name", "").replace("_", " "), b.get("name", "").replace("_", " "))
-    # neural path includes the guards (thin-description, action-class)
-    desc_sim = (equivalence_score(rr, a_desc, b_desc) or 0.0) if neural else cos(a_desc, b_desc)
+    title_sim = None
+    if neural:
+        fs = field_scores(rr, a, b)
+        name_sim, desc_sim = fs["name"], fs["description"]
+        title_sim = fs.get("title")
+    else:
+        name_sim = cos(a.get("name", "").replace("_", " "), b.get("name", "").replace("_", " "))
+        desc_sim = cos(a_desc, b_desc)
     a_params = set((a.get("input_schema") or {}).get("properties", {}))
     b_params = set((b.get("input_schema") or {}).get("properties", {}))
     shared_params = sorted(a_params & b_params)
-    param_sim = round(len(a_params & b_params) / (len(a_params | b_params) or 1), 4)
+    param_sim = param_similarity(a, b) or 0.0
     shared_terms = sorted(norm_tokens(a_desc) & norm_tokens(b_desc),
                           key=lambda t: -len(t))[:12]
 
@@ -163,7 +168,10 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
     if not recs:
         recs.append({"field": "overall", "severity": "info",
                      "message": "Overlap is moderate; likely acceptable as separate tools."})
-    return {"subscores": {"name": name_sim, "description": desc_sim, "parameters": param_sim},
+    subs = {"name": name_sim, "description": desc_sim, "parameters": param_sim}
+    if title_sim is not None:
+        subs["title"] = title_sim
+    return {"subscores": subs,
             "shared": {"terms": shared_terms, "parameters": shared_params},
             "recommendations": recs}
 
@@ -305,58 +313,51 @@ def inferred_class(payload: dict) -> Optional[str]:
             or action_class(payload.get("name", "").replace("_", " ")))
 
 
-def serialize_tool(payload: dict) -> str:
-    """Ditto-style record serialization: the WHOLE tool (name, title, description,
-    parameters with types + descriptions) as one annotated text, so the matcher
-    judges the pair with full cross-field context instead of hand-tuned weights."""
-    parts = [f"tool: {payload.get('name', '')}"]
-    title = payload.get("title", "")
-    if title and title != payload.get("name"):
-        parts.append(f"title: {title}")
-    parts.append(f"does: {payload.get('description', '')}")
-    effect = declared_effect(payload)
-    if effect:
-        parts.append({"read": "effect: read-only, changes nothing",
-                      "destructive": "effect: destructive state change",
-                      "write": "effect: modifies state",
-                      "write?": "effect: modifies state"}[effect])
-    for ov in (payload.get("audiences") or {}).values():
-        d = (ov.get("overrides") or {}).get("description")
-        if d:
-            parts.append(f"also described as: {d}")
-    props = (payload.get("input_schema") or {}).get("properties", {})
-    required = set((payload.get("input_schema") or {}).get("required", []))
-    for pname, pschema in props.items():
-        bits = f"parameter {pname} ({pschema.get('type', 'any')}"
-        bits += ", required)" if pname in required else ")"
-        if pschema.get("description"):
-            bits += f": {pschema['description']}"
-        parts.append(bits)
-    return " ; ".join(parts)
+# Field weights for the overall match %. The overall is a TRANSPARENT weighted
+# average of the per-field scores the UI shows — absent fields (no titles, no
+# params on either side) drop out and the remaining weights renormalise.
+FIELD_WEIGHTS = {"description": 0.55, "name": 0.15, "title": 0.10, "parameters": 0.20}
+
+
+def param_similarity(a: dict, b: dict) -> Optional[float]:
+    """Structural overlap of parameter names; None when neither tool has params
+    (an absent field shouldn't drag the average down)."""
+    pa = set((a.get("input_schema") or {}).get("properties", {}))
+    pb = set((b.get("input_schema") or {}).get("properties", {}))
+    if not pa and not pb:
+        return None
+    return round(len(pa & pb) / (len(pa | pb) or 1), 4)
+
+
+def field_scores(rr: "Reranker", a: dict, b: dict) -> dict:
+    """Per-field semantic scores — the SAME numbers the UI breakdown shows."""
+    scores = {"description": equivalence_score(rr, desc_text_of(a), desc_text_of(b)) or 0.0,
+              "name": _sym_rerank(rr, a.get("name", "").replace("_", " "),
+                                  b.get("name", "").replace("_", " ")) or 0.0}
+    ta, tb = a.get("title", ""), b.get("title", "")
+    if ta and tb and ta != a.get("name") and tb != b.get("name"):
+        scores["title"] = _sym_rerank(rr, ta, tb) or 0.0
+    p = param_similarity(a, b)
+    if p is not None:
+        scores["parameters"] = p
+    return scores
 
 
 def tool_equivalence(rr: "Reranker", a_payload: dict, b_payload: dict) -> Optional[float]:
-    """Whole-tool semantic match with deterministic guards:
-    - thin-description cap (a tool must SAY what it does to claim similarity)
-    - action-class cap on descriptions (create != fetch, whatever the topic)
-    - symmetric cross-encoding over the full serialized records
-    - near-identical floor on the serialized records"""
+    """Overall match % = weighted average of the visible field scores, with
+    deterministic guards:
+    - thin-description cap: a tool must SAY what it does to claim similarity
+    - capability cap: declared annotations first, verb inference as fallback"""
     a_desc, b_desc = desc_text_of(a_payload), desc_text_of(b_payload)
-    a_ser, b_ser = serialize_tool(a_payload), serialize_tool(b_payload)
+    scores = field_scores(rr, a_payload, b_payload)
+    weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in scores}
+    overall = sum(scores[f] * w for f, w in weights.items()) / sum(weights.values())
     if _informative_count(a_desc) < 2 or _informative_count(b_desc) < 2:
-        fwd = rr.score_pairs(a_ser, [b_ser])
-        return min(0.35, fwd[0]) if fwd else None
-    fwd = rr.score_pairs(a_ser, [b_ser])
-    bwd = rr.score_pairs(b_ser, [a_ser])
-    if not fwd or not bwd:
-        return None
-    score = (fwd[0] + bwd[0]) / 2
-    if _jaccard(a_ser, b_ser) >= 0.8:
-        score = max(score, 0.9)
+        overall = min(overall, 0.35)
     cap = capability_cap(a_payload, b_payload)
     if cap is not None:
-        score = min(score, cap)
-    return round(score, 4)
+        overall = min(overall, cap)
+    return round(overall, 4)
 
 
 def equivalence_score(rr: "Reranker", a: str, b: str) -> Optional[float]:
