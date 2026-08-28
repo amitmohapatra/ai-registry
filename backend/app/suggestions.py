@@ -6,7 +6,7 @@ instead' is always safe to click."""
 import re
 from typing import List, Optional, Set
 
-from .similarity import desc_text_of, name_similarity
+from .similarity import blend_breakdown, desc_text_of, name_similarity, reranker
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -78,26 +78,38 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool) -> dict:
-    """Per-section recommendations. Every suggested name is VALIDATED before
-    being offered: unique across all products, and its predicted match against
-    the conflicting tool must be a real improvement (reported as new_match)."""
+    """Per-section recommendations, honestly scored: each rename shows the
+    predicted OVERALL match (recomputed with the real scorer), and the
+    description gets an applyable differentiator sentence — the field that
+    actually moves the number."""
+    rr = reranker()
     other_name = other.get("name", "")
     current_sim = name_similarity(draft.get("name", ""), other_name)
     names = []
     if name_collision:
         for n in suggest_names(draft, other, product_key, taken):
             predicted = name_similarity(n, other_name)
-            if predicted < current_sim - 0.1:          # only offer genuine improvements
-                names.append({"name": n, "title": humanize(n),
-                              "new_match": round(predicted, 2)})
+            if predicted >= current_sim - 0.1:         # only genuine improvements
+                continue
+            renamed = {**draft, "name": n, "title": humanize(n)}
+            new_overall = blend_breakdown(rr, renamed, other)["overall"]
+            names.append({"name": n, "title": humanize(n),
+                          "new_overall": round(new_overall, 2)})
     title_suggestion = None
     if names:
         title_suggestion = names[0]["title"]
     elif (d := _distinct_tokens(draft, other)):
         title_suggestion = f"{humanize(draft.get('name', ''))} ({d[0]})"
+    distinct = _distinct_tokens(draft, other)
+    description_suggestion = None
+    if distinct:
+        description_suggestion = (f"{draft.get('description', '').rstrip('. ')}. "
+                                  f"Unlike {other_name}, this is specifically about "
+                                  f"{', '.join(distinct[:3])}.")
     return {
         "names": names,
         "current_name_match": round(current_sim, 2),
         "title_suggestion": title_suggestion,
+        "description_suggestion": description_suggestion,
         "description_tip": description_tip(draft, other),
     }

@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_match: number }[]; current_name_match?: number; title_suggestion?: string | null; description_tip: string } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: string | null; description_tip: string } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -140,7 +140,7 @@ export default function ToolEditor() {
           basePayload={payload} setOverlay={setOverlay} errFor={errFor}
           preview={preview} errors={errors} />
       )}
-      <SimilarPanel productKey={productKey} entityId={entityId} matches={matches} />
+      <SimilarPanel entityId={entityId} matches={matches} />
       {!isNew && (
             <div className="card">
               <h2>Version history</h2>
@@ -178,24 +178,22 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
 }
 
 /* ---------- similar tools: expandable rows, same experience as Check overlaps ---------- */
-function SimilarPanel({ productKey, entityId, matches }:
-  { productKey: string; entityId?: string; matches: Matches | null }) {
+function SimilarPanel({ entityId, matches }:
+  { entityId?: string; matches: Matches | null }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<Record<string, any>>({})
   const th = matches?.threshold ?? 0.5
   const visible = (matches?.matches ?? []).filter(m => m.score >= th * 0.6)
   if (!matches || visible.length === 0) return null
 
-  const toggle = async (m: Similar) => {
+  const toggle = (m: Similar) => {
     if (open === m.id) { setOpen(''); return }
     setOpen(m.id)
     if (detail[m.id]) return
-    if (matches.top_explain?.other?.id === m.id) {
-      setDetail(d => ({ ...d, [m.id]: matches.top_explain }))
-    } else if (entityId) {
-      const ex = await api.explainPair(productKey, entityId, m.id).catch(() => null)
-      setDetail(d => ({ ...d, [m.id]: ex ?? { failed: true } }))
-    }
+    // draft-consistent: the SAME breakdown that produced this row's %
+    const bd = (m as any).breakdown
+    const extra = matches.top_explain?.other?.id === m.id ? matches.top_explain : {}
+    setDetail(d => ({ ...d, [m.id]: bd ? { ...extra, ...bd } : (extra.subscores ? extra : { failed: true }) }))
   }
 
   return (
@@ -246,18 +244,30 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
-          ⚠ {Math.round(top.score * 100)}% similar to <b className="score">{top.product_key}/{top.name}</b>
-          <span className="muted"> (your threshold: {Math.round(th * 100)}%)</span>
-          {matches.top_explain?.recommendations?.[0] ? ` — ${matches.top_explain.recommendations[0].message}` : ''}
+          ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
+          <b className="score">{top.product_key}/{top.name}</b>
+          <span className="muted"> (threshold {Math.round(th * 100)}%)</span>
+          {(top as any).breakdown?.contributions && (
+            <span style={{ marginLeft: 10, fontWeight: 400 }}>
+              {['description', 'parameters', 'name', 'title']
+                .filter(f => f in (top as any).breakdown.contributions)
+                .map(f => (
+                  <span key={f} className="param-op" style={{ marginRight: 5 }}
+                    title={`${f}: ${Math.round(((top as any).breakdown.subscores?.[f] ?? 0) * 100)}% similar`}>
+                    {f} {Math.round(((top as any).breakdown.contributions[f] ?? 0) * 100)}%
+                  </span>
+                ))}
+            </span>
+          )}
           {matches.suggestions?.names?.length ? (
             <div className="sugg-row">
               <span className="sugg-label">Name</span>
               <span style={{ fontWeight: 400 }}>
-                {matches.suggestions.names.map((s: { name: string; title: string; new_match: number }) => (
+                {matches.suggestions.names.map((s: { name: string; title: string; new_overall: number }) => (
                   <button key={s.name} className="small chip" style={{ marginRight: 6 }}
-                    title={`Rename to "${s.name}" (title: "${s.title}") — name similarity vs ${top.name} drops from ${Math.round((matches.suggestions!.current_name_match ?? 1) * 100)}% to ${Math.round(s.new_match * 100)}%`}
+                    title={`Rename to "${s.name}" (title "${s.title}") — overall match becomes ~${Math.round(s.new_overall * 100)}%`}
                     onClick={() => set({ name: s.name, title: s.title })}>
-                    {s.name}</button>
+                    {s.name} → {Math.round(s.new_overall * 100)}%</button>
                 ))}
               </span>
             </div>
@@ -270,10 +280,13 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 {matches.suggestions.title_suggestion}</button>
             </div>
           )}
-          {matches.suggestions?.description_tip && (
+          {matches.suggestions?.description_suggestion && (
             <div className="sugg-row">
               <span className="sugg-label">Description</span>
-              <span style={{ fontWeight: 400 }}>{matches.suggestions.description_tip}</span>
+              <button className="small chip" style={{ maxWidth: 520 }}
+                title={matches.suggestions.description_suggestion}
+                onClick={() => set({ description: matches.suggestions!.description_suggestion })}>
+                {matches.suggestions.description_suggestion}</button>
             </div>
           )}
         </div>

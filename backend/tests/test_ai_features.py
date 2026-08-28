@@ -141,7 +141,7 @@ async def test_suggestions_on_flagged_draft(client):
         assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", item["name"])
         assert item["name"].lower() not in existing   # collision-free across products
         assert item["title"][0].isupper()             # human title provided
-        assert 0 <= item["new_match"] < 0.9           # VALIDATED: predicted improvement
+        assert 0 <= item["new_overall"] <= 1          # predicted OVERALL after rename
     assert s["title_suggestion"]                      # per-section: applyable title
     assert 0 <= s["current_name_match"] <= 1
     # distinct angle surfaces in both a name and the tip

@@ -129,8 +129,10 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
 
     a_desc, b_desc = a.get("description", ""), b.get("description", "")
     title_sim = None
+    bd = None
     if neural:
-        fs = field_scores(rr, a, b)
+        bd = blend_breakdown(rr, a, b)
+        fs = bd["subscores"]
         name_sim, desc_sim = fs["name"], fs["description"]
         title_sim = fs.get("title")
     else:
@@ -168,15 +170,22 @@ def explain_pair(a: dict, b: dict, a_vec=None, b_vec=None) -> dict:
     if not recs:
         recs.append({"field": "overall", "severity": "info",
                      "message": "Overlap is moderate; likely acceptable as separate tools."})
-    subs = {"name": name_sim, "description": desc_sim, "parameters": param_sim}
-    if title_sim is not None:
-        subs["title"] = title_sim
-    weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in subs}
-    total_w = sum(weights.values())
-    contributions = {f: round(subs[f] * w / total_w, 4) for f, w in weights.items()}
+    if bd is not None:
+        subs, overall, contributions = bd["subscores"], bd["overall"], bd["contributions"]
+        capped_by = bd["capped_by"]
+    else:
+        subs = {"name": name_sim, "description": desc_sim, "parameters": param_sim}
+        if title_sim is not None:
+            subs["title"] = title_sim
+        weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in subs}
+        total_w = sum(weights.values())
+        contributions = {f: round(subs[f] * w / total_w, 4) for f, w in weights.items()}
+        overall = round(sum(contributions.values()), 4)
+        capped_by = None
     return {"subscores": subs,
-            "overall": round(sum(contributions.values()), 4),
+            "overall": overall,
             "contributions": contributions,
+            "capped_by": capped_by,
             "params": {"a": sorted(a_params), "b": sorted(b_params)},
             "shared": {"terms": shared_terms, "parameters": shared_params},
             "recommendations": recs}
@@ -349,21 +358,36 @@ def field_scores(rr: "Reranker", a: dict, b: dict) -> dict:
     return scores
 
 
-def tool_equivalence(rr: "Reranker", a_payload: dict, b_payload: dict) -> Optional[float]:
-    """Overall match % = weighted average of the visible field scores, with
-    deterministic guards:
-    - thin-description cap: a tool must SAY what it does to claim similarity
-    - capability cap: declared annotations first, verb inference as fallback"""
+def blend_breakdown(rr: "Reranker", a_payload: dict, b_payload: dict) -> dict:
+    """THE similarity computation — one function, used by every surface.
+
+    overall = weighted average of field scores, with guards (thin-description
+    cap; capability cap from annotations/verbs). When a guard caps the score,
+    contributions are scaled proportionally so they STILL sum to the shown
+    overall — the breakdown always adds up, everywhere, by construction."""
     a_desc, b_desc = desc_text_of(a_payload), desc_text_of(b_payload)
     scores = field_scores(rr, a_payload, b_payload)
     weights = {f: w for f, w in FIELD_WEIGHTS.items() if f in scores}
-    overall = sum(scores[f] * w for f, w in weights.items()) / sum(weights.values())
-    if _informative_count(a_desc) < 2 or _informative_count(b_desc) < 2:
-        overall = min(overall, 0.35)
+    total_w = sum(weights.values())
+    raw = sum(scores[f] * w for f, w in weights.items()) / total_w
+    overall = raw
+    capped_by = None
+    if (_informative_count(a_desc) < 2 or _informative_count(b_desc) < 2) and overall > 0.35:
+        overall, capped_by = 0.35, "thin-description"
     cap = capability_cap(a_payload, b_payload)
-    if cap is not None:
-        overall = min(overall, cap)
-    return round(overall, 4)
+    if cap is not None and overall > cap:
+        overall, capped_by = cap, "different-capability"
+    factor = (overall / raw) if raw > 0 else 0.0
+    contributions = {f: round(scores[f] * w / total_w * factor, 4)
+                     for f, w in weights.items()}
+    return {"overall": round(overall, 4),
+            "subscores": {f: round(v, 4) for f, v in scores.items()},
+            "contributions": contributions,
+            "capped_by": capped_by}
+
+
+def tool_equivalence(rr: "Reranker", a_payload: dict, b_payload: dict) -> Optional[float]:
+    return blend_breakdown(rr, a_payload, b_payload)["overall"]
 
 
 def equivalence_score(rr: "Reranker", a: str, b: str) -> Optional[float]:
@@ -405,12 +429,10 @@ def apply_rerank(query_payload: dict, ranked: List[dict],
     thin_query = _informative_count(desc_text_of(query_payload)) < 2
     for m in ranked:
         other = payload_of.get(m["id"]) or {}
-        s = tool_equivalence(rr, query_payload, other)
-        if s is None:
-            m["method"] = "cosine"
-            continue
+        bd = blend_breakdown(rr, query_payload, other)
         m["cosine"] = m["score"]
-        m["score"] = s
+        m["score"] = bd["overall"]
+        m["breakdown"] = bd
         m["method"] = "thin-description" if (thin_query or
             _informative_count(desc_text_of(other)) < 2) else "reranked"
     return sorted(ranked, key=lambda m: -m["score"])
@@ -425,12 +447,12 @@ def rerank_pairs(pairs: List[dict], payload_of: Dict[str, dict], cap: int = 100)
             p["method"] = "cosine"
         return pairs
     for p in pairs[:cap]:
-        s = tool_equivalence(rr, payload_of.get(p["a"]["id"]) or {},
+        bd = blend_breakdown(rr, payload_of.get(p["a"]["id"]) or {},
                              payload_of.get(p["b"]["id"]) or {})
-        if s is not None:
-            p["cosine"] = p["score"]
-            p["score"] = s
-            p["method"] = "reranked"
+        p["cosine"] = p["score"]
+        p["score"] = bd["overall"]
+        p["breakdown"] = bd
+        p["method"] = "reranked"
     for p in pairs[cap:]:
         p["method"] = "cosine"
     return sorted(pairs, key=lambda p: -p["score"])

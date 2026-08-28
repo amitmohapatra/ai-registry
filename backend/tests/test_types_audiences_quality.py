@@ -283,3 +283,31 @@ def test_explain_nudges_missing_annotations(client):
     b2 = _tool("fetch_invoice", "Fetch an invoice by customer id.", {"readOnlyHint": True})
     ex = explain_pair(a2, b2)
     assert not any(r["field"] == "annotations" for r in ex["recommendations"])
+
+
+def test_score_uniformity_row_breakdown_explain():
+    """The row %, its attached breakdown, and explain_pair must be THE SAME
+    number for the same two payloads — no surface may disagree."""
+    from app.similarity import blend_breakdown, explain_pair, tool_equivalence
+
+    class Stub:
+        def score_pairs(self, q, c): return [1.2 for _ in c]
+
+    a = _tool("get_invoice", "Fetch an invoice by its ID for billing review.",
+              {"readOnlyHint": True})
+    b = _tool("create_invoice", "Create a new invoice for a customer order.",
+              {"readOnlyHint": False})          # capability cap will fire
+    rr = Stub()
+    bd = blend_breakdown(rr, a, b)
+    assert tool_equivalence(rr, a, b) == bd["overall"]
+    assert abs(sum(bd["contributions"].values()) - bd["overall"]) < 0.002  # adds up even when capped
+    assert bd["capped_by"] == "different-capability"
+    import app.similarity as sim
+    orig = sim.reranker
+    sim._reranker = rr                       # force explain down the same path
+    try:
+        ex = explain_pair(a, b)
+        assert ex["overall"] == bd["overall"]
+        assert ex["contributions"] == bd["contributions"]
+    finally:
+        sim._reranker = None
