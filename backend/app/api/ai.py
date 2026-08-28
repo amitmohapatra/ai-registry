@@ -78,7 +78,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     vec = (await embedder().embed([text]))[0]
     cands = await _candidates(db, "")
     exclude = payload.get("_entity_id")            # editing an existing tool: skip itself
-    matches = rank(vec, text, cands, top_k=5, exclude_id=exclude)
+    matches = rank(vec, text, cands, top_k=10, exclude_id=exclude)
     matches = apply_rerank(payload, matches,
                            {c["id"]: c["payload"] for c in cands})
     for m in matches:
@@ -100,10 +100,12 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             other = await db.get(Entity, top["id"])
             if other:
                 taken = {c["name"] for c in cands} | {payload.get("name", "")}
+                by_id = {c["id"]: c["payload"] for c in cands}
+                nearby = [by_id[m["id"]] for m in matches if m["id"] in by_id]
                 suggestions = build_suggestions(
                     payload, other.payload, product.key, taken,
                     name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold,
-                    threshold=threshold)
+                    threshold=threshold, others=nearby)
     return {"matches": matches, "top_explain": top_explain, "threshold": threshold,
             "suggestions": suggestions}
 

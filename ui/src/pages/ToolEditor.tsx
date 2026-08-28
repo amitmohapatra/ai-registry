@@ -339,8 +339,8 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {(matches.suggestions?.names?.length || matches.suggestions?.titles?.length ||
             matches.suggestions?.descriptions?.length || matches.suggestions?.description_tip) ? (
             <div className="sugg-panel">
-              <div className="sugg-head">Suggestions — pick any option to reduce the {Math.round(top.score * 100)}% match
-                (green = drops it below your {Math.round(th * 100)}% threshold)</div>
+              <div className="sugg-head">Verified fixes — every option below drops the match under your {Math.round(th * 100)}% threshold,
+                checked against every nearby tool</div>
               {matches.suggestions?.names?.length ? (
                 <SuggGroup label="Name" current={top.score} threshold={th} options={matches.suggestions.names.map((o: any) => ({
                   text: o.name, hover: `Rename to \u201c${o.name}\u201d (title \u201c${o.title}\u201d)`,

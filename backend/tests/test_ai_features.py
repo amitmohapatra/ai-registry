@@ -226,7 +226,8 @@ def test_description_options_verified_to_improve():
         s = build_suggestions(draft, other, "shipping", {"get_invoice"}, True, 0.5)
         assert s["descriptions"], s
         for opt in s["descriptions"]:
-            assert opt["new_overall"] < cur                      # verified improvement
+            assert opt["new_overall"] < 0.5                      # ONLY fixing options shown
+            assert opt["new_overall"] < cur
             assert "unlike" not in opt["text"].lower()           # affirmative, no negation
             applied = {**draft, "description": opt["text"]}
             actual = sim.blend_breakdown(sim.reranker(), applied, other)["overall"]

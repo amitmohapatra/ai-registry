@@ -108,65 +108,71 @@ def _dedupe_words(text: str) -> str:
 
 def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]:
     """Affirmative rewrites (research: models barely register negation — 'Unlike X'
-    keeps the similarity; a rewrite must CHANGE what the text asserts). Short
-    descriptions get full rewrites; a LONG description the author invested in is
-    respected — we edit it (rework the lead, add scope) rather than replace it."""
+    keeps the similarity; a rewrite must CHANGE what the text asserts). We generate
+    a POOL of structurally different skeletons — same-template rewrites read as
+    near-duplicates of each other — and the caller keeps only the candidates whose
+    worst-case score against every nearby tool clears the threshold. Long
+    descriptions the author invested in are edited (lead reworked, scope added)
+    rather than replaced."""
     d = _distinct_tokens(draft, other)
     params = list((draft.get("input_schema") or {}).get("properties", {}))
     main_param = (params[0].replace("_", " ") if params else "identifier")
     if not d:
         return []
-    anchor = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
+    a1 = f"{d[0]} {d[1]}" if len(d) >= 2 else d[0]
+    a2 = (f"{d[2]} {d[3]}" if len(d) >= 4 else (d[2] if len(d) >= 3 else a1))
+    pk = product_key
+    skeletons = [
+        f"{a1.capitalize()} lookup for {pk}: returns the {a1} record matching {_an(main_param)}.",
+        f"Read-only access to {pk}'s {a1} data, keyed by {main_param}.",
+        f"{pk.capitalize()}-side query that resolves {_an(main_param)} to its {a2} entry.",
+        f"Reports the {a2} held by {pk} for one {main_param}; nothing else is returned.",
+        f"Look up the {a1} held in {pk} for a specific {main_param}; no other record types are returned.",
+    ]
     full = desc_text_of(draft).strip()
     out = []
-    short = (f"{anchor.capitalize()} lookup for {product_key}: returns the "
-             f"{anchor} record matching {_an(main_param)}.")
     if len(full) > 160:
-        # keep the author's text; rework only the lead sentence (the part that
-        # reads most like the other tool) and offer an added scope line
         parts = re.split(r"(?<=[.!?])\s+", full, maxsplit=1)
         rest = parts[1] if len(parts) > 1 else ""
-        lead = (f"Look up the {anchor} information that {product_key} keeps "
-                f"for a specific {main_param}.")
         if rest:
-            out.append(f"{lead} {rest}")
-        out.append(f"{full} Applies only to {product_key}'s own {anchor} "
-                   f"records; data owned by other products is never returned.")
-        out.append(short)
+            out.append(f"Look up the {a1} information that {pk} keeps for a specific {main_param}. {rest}")
+            out.append(f"Read-only {pk} view of {a1} data for one {main_param}. {rest}")
+        out.append(f"{full} Applies only to {pk}'s own {a1} records; data owned by "
+                   f"other products is never returned.")
+        out.extend(skeletons[:4])
     else:
-        out.append(short)
-        out.append(f"Look up the {anchor} held in {product_key} for a specific "
-                   f"{main_param}; no other record types are returned.")
-        out.append(f"Given {_an(main_param)}, returns {product_key}'s {anchor} "
-                   f"record for it — scoped to {product_key} data only.")
-    return [_dedupe_words(t) for t in out]
+        out.extend(skeletons)
+    return [_dedupe_words(t) for t in dict.fromkeys(out)]
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
                       taken: Set[str], name_collision: bool,
-                      threshold: float = 0.5) -> dict:
-    """2-3 pickable options per field (name / title / description), each with the
-    PREDICTED overall match after applying just that option — computed with the
-    real scorer, offered only when it genuinely improves things."""
+                      threshold: float = 0.5,
+                      others: Optional[List[dict]] = None) -> dict:
+    """Up to 3 pickable options per field (name / title / description). Every
+    option is VERIFIED with the real scorer against every nearby tool (not just
+    the current top match) and offered only if its worst-case overall lands
+    below the threshold — an option we show is an option that fixes it."""
     rr = reranker()
     neural = not isinstance(rr, NoopReranker)
     other_name = other.get("name", "")
     current_sim = name_similarity(draft.get("name", ""), other_name)
+    field = [other] + [o for o in (others or []) if o is not other]
     current_overall = blend_breakdown(rr, draft, other)["overall"] if neural else None
 
     def predicted(patch: dict) -> Optional[float]:
+        # worst case across ALL nearby tools: a rewrite that dodges the top
+        # match but still collides with the #2 must not be called a fix
         if not neural:
             return None
-        return round(blend_breakdown(rr, {**draft, **patch}, other)["overall"], 2)
+        applied = {**draft, **patch}
+        return round(max(blend_breakdown(rr, applied, o)["overall"] for o in field), 2)
 
-    def improving(options):
-        # Never offer an option that makes the match WORSE; within that, rank by
-        # predicted overall (best first). The visible "-> X%" on each chip is the
-        # honesty mechanism — a rename that only gets to 78% shows exactly that.
+    def fixing(options):
         if not neural:
             return options[:3]
         kept = [o for o in options if o["new_overall"] is not None
-                and o["new_overall"] <= round(current_overall, 2)]
+                and o["new_overall"] < threshold]
         return sorted(kept, key=lambda o: o["new_overall"])[:3]
 
     names = []
@@ -176,7 +182,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                 continue                          # must not be MORE name-alike
             names.append({"name": n, "title": humanize(n),
                           "new_overall": predicted({"name": n, "title": humanize(n)})})
-    names = improving(names)
+    names = fixing(names)
 
     d = _distinct_tokens(draft, other)
     title_texts = [humanize(n["name"]) for n in names]
@@ -184,17 +190,16 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         title_texts.append(f"{humanize(draft.get('name', ''))} ({d[0]})")
         if len(d) > 1:
             title_texts.append(f"{d[0].capitalize()} {d[1]} — {humanize(draft.get('name', ''))}")
-    titles = improving([{"title": t, "new_overall": predicted({"title": t})}
+    titles = fixing([{"title": t, "new_overall": predicted({"title": t})}
                         for t in dict.fromkeys(title_texts) if t != draft.get("title")])
 
-    descriptions = improving([{"text": t, "new_overall": predicted({"description": t})}
+    descriptions = fixing([{"text": t, "new_overall": predicted({"description": t})}
                               for t in _rewrite_candidates(draft, other, product_key)])
 
     resolution_hint = None
-    if neural and current_overall is not None and current_overall >= threshold:
-        best = min([o["new_overall"] for o in names + titles]
-                   + [o["new_overall"] for o in descriptions] + [1.0])
-        if best >= threshold:
+    if (neural and current_overall is not None and current_overall >= threshold
+            and not (names or titles or descriptions)):
+        if True:
             bd = blend_breakdown(rr, draft, other)
             top_field = max(bd["contributions"], key=lambda f: bd["contributions"][f])
             resolution_hint = (
