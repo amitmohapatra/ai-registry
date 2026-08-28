@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -264,7 +264,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [wasFlagged, setWasFlagged] = useState(false)
-  const [showResDesc, setShowResDesc] = useState(false)
+  const [showResDesc, setShowResDesc] = useState<number | null>(null)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   const th = matches?.threshold ?? 0.5
@@ -298,67 +298,38 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                 ))}
             </span>
           )}
-          {matches.suggestions && (() => {
-            const sg = matches.suggestions
-            const desc = sg.descriptions?.[0]
-            const res = sg.bundle
-              ?? (desc && desc.new_overall != null && desc.new_overall < th
-                    ? { description: desc.text, new_overall: desc.new_overall } as any
-                    : null)
-            const P = (x: number) => `${Math.round(x * 100)}%`
-            if (res) return (
-              <div className="resolve-card">
-                <div className="resolve-head">
-                  <span className="dot green" /> Recommended resolution
-                  <span className="muted" style={{ fontWeight: 400 }}> — same meaning, scoped to this product; verified against every product</span>
-                  <span className="delta ok" style={{ marginLeft: 'auto' }}
-                    title={`The match drops from ${P(top.score)} to ${P(res.new_overall)}, below your ${P(th)} threshold`}>
-                    resolves it ✓</span>
-                </div>
-                <table className="resolve-table"><tbody>
-                  {res.name && (
-                    <tr><th>Name</th>
-                      <td className="cur">{payload.name}</td><td className="arr">→</td>
-                      <td><b className="score">{res.name}</b></td></tr>
-                  )}
-                  {res.title && (
-                    <tr><th>Title</th>
-                      <td className="cur">{payload.title || '—'}</td><td className="arr">→</td>
-                      <td>{res.title}</td></tr>
-                  )}
-                  <tr><th>Description</th>
-                    <td className="cur">your text</td><td className="arr">→</td>
-                    <td>your meaning, reworded to say it is this product's own data
-                      {' '}<button className="small" onClick={() => setShowResDesc(v => !v)}>
-                        {showResDesc ? 'Hide' : 'View'}</button></td></tr>
-                </tbody></table>
-                {showResDesc && <div className="resolve-desc">{res.description}</div>}
-                <div style={{ marginTop: 10 }}>
-                  <button className="primary" onClick={() => {
-                    const patch: any = { description: res.description }
-                    if (res.name) patch.name = res.name
-                    if (res.title) patch.title = res.title
-                    set(patch); toast('Resolution applied — review and Save & publish')
-                  }}>Resolve</button>
-                </div>
+          {matches.suggestions?.packages?.length ? (
+            <div className="resolve-card">
+              <div className="resolve-head">
+                <span className="dot green" /> Pick a resolution
+                <span className="muted" style={{ fontWeight: 400 }}> — meaning unchanged, verified against every product</span>
               </div>
-            )
-            return (
-              <div className="resolve-card dup">
-                <div className="resolve-head" style={{ color: '#3c4043' }}>These two tools appear to do the same thing</div>
-                <p style={{ margin: '6px 0', fontWeight: 400 }}>
-                  A wording change that keeps your meaning cannot make them look different.
-                  Recommend reusing <b className="score">{top.product_key}/{top.name}</b> instead —
-                  or, if this tool truly differs, say how:</p>
-                {sg.template && <div className="template-text">
-                  <code>{sg.template}</code>
-                  <button className="icon-act" title="Copy template" aria-label="Copy template" onClick={() => {
-                    navigator.clipboard.writeText(sg.template!); toast('Copied')
-                  }}>⧉</button>
-                </div>}
-              </div>
-            )
-          })()}
+              {matches.suggestions.packages.map((p: any, i: number) => (
+                <div key={i}>
+                  <div className="pkg-row">
+                    <span className="pkg-num">{i + 1}</span>
+                    <b className="score">{p.name}</b>
+                    <span className="muted">·</span>
+                    <span className="pkg-title">{p.title}</span>
+                    <span className="muted">·</span>
+                    <button className="small" onClick={() => setShowResDesc(v => v === i ? null : i)}>
+                      {showResDesc === i ? 'hide description' : 'description'}</button>
+                    <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
+                      <s className="muted">{Math.round(top.score * 100)}%</s>
+                      <span className="sugg-arrow">→</span>
+                      {p.new_overall < th
+                        ? <span className="delta ok">{Math.round(p.new_overall * 100)}% ✓</span>
+                        : <span className="delta part">{Math.round(p.new_overall * 100)}%</span>}
+                    </span>
+                    <button className="icon-act" title="Apply name, title and description" aria-label={`Apply option ${i + 1}`}
+                      onClick={() => { set({ name: p.name, title: p.title, description: p.description })
+                        toast('Applied — review and Save & publish') }}>✓</button>
+                  </div>
+                  {showResDesc === i && <div className="resolve-desc">{p.description}</div>}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
       {!flagged && wasFlagged && top && (

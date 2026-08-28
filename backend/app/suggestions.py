@@ -217,15 +217,18 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
             f"the copy of this data that {product_key} itself stores and serves.")
     current = list(sentences)
     edited: set = set()
+    best_text, best_score = None, 1.0
     for step in range(max_edits + 1):
         text = _dedupe_words(" ".join(x for x in current if x))
         worst_score, blocker = max(
             ((blend_breakdown(rr, {**draft, "description": text}, o)["overall"], o)
              for o in field), key=lambda x: x[0])
+        if worst_score < best_score and _retention(text, full) >= 0.6:
+            best_text, best_score = text, worst_score
         if worst_score < threshold:
-            return text if _retention(text, full) >= 0.6 else None
+            return best_text
         if step == max_edits:
-            return None
+            return best_text          # best effort — caller decides via predicted()
         live = [x for x in current if x]
         sims = rr.score_pairs(desc_text_of(blocker), live)
         order = sorted(range(len(live)), key=lambda i: -sims[i])
@@ -240,7 +243,7 @@ def _greedy_desc_edit(draft: dict, other: dict, product_key: str,
         labels = ["Data included", "Usage notes", "Notes"]
         current[idx] = lead if not edited else _fieldize(current[idx], labels[min(len(edited) - 1, 2)])
         edited.add(idx)
-    return None
+    return best_text
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
@@ -310,32 +313,33 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                                 + descriptions)[:3]
                 any_fix = True
 
-    # THE headline: name + title + description applied TOGETHER (name 15% +
-    # title 10% + description 55% of the blend clears bars no field can alone)
-    bundle = None
+    # ranked complete packages: name + title + description, meaning unchanged,
+    # each verified worst-case against every product — the user picks one
+    packages = []
     if neural and current_overall is not None and current_overall >= threshold:
-        nm_c = sorted((o for o in raw_names if o["new_overall"] is not None),
-                      key=lambda o: o["new_overall"])[:2]
-        desc_pool = [o for o in raw_desc if o["new_overall"] is not None
-                     and o.get("keeps_content", True)]
-        desc_pool += [o for o in descriptions if o not in desc_pool]
-        dc_c = sorted(desc_pool, key=lambda o: o["new_overall"])[:2]
-        best = None
-        for nm in (nm_c or [None]):
-            for dc in (dc_c or [None]):
-                patch = {}
-                if nm:
-                    patch.update({"name": nm["name"], "title": nm["title"]})
-                if dc:
-                    patch["description"] = dc["text"]
-                if len(patch) < 3:
-                    continue                       # combos only — singles shown separately
-                p = predicted(patch)
-                if p is not None and (best is None or p < best["new_overall"]):
-                    best = {"name": patch["name"], "title": patch["title"],
-                            "description": patch["description"], "new_overall": p}
-        if best and best["new_overall"] < threshold:
-            bundle = best
+        deep = _greedy_desc_edit(draft, other, product_key, threshold, field, rr)
+        desc_pool = [o["text"] for o in
+                     sorted((o for o in raw_desc if o["new_overall"] is not None
+                             and o.get("keeps_content", True)),
+                            key=lambda o: o["new_overall"])[:2]]
+        if deep:
+            desc_pool.insert(0, deep)
+        desc_pool = list(dict.fromkeys(desc_pool))[:3]
+        name_pool = ([(o["name"], o["title"]) for o in raw_names[:3]]
+                     or [(draft.get("name", ""), draft.get("title") or humanize(draft.get("name", "")))])
+        for nm, ti in name_pool:
+            for dc in desc_pool:
+                p = predicted({"name": nm, "title": ti, "description": dc})
+                if p is not None:
+                    packages.append({"name": nm, "title": ti, "description": dc,
+                                     "new_overall": p})
+        packages.sort(key=lambda x: x["new_overall"])
+        seen, uniq = set(), []
+        for p in packages:                      # one package per name
+            if p["name"] not in seen:
+                uniq.append(p); seen.add(p["name"])
+        packages = uniq[:3]
+    bundle = packages[0] if packages and packages[0]["new_overall"] < threshold else None
 
     # concrete frame the author can fill in — forces the distinguishing facts
     template = None
@@ -354,6 +358,7 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
             f"use-case and the score will drop.")
 
     return {
+        "packages": packages,
         "names": names,
         "titles": titles,
         "descriptions": descriptions,
