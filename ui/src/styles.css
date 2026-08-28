@@ -238,3 +238,22 @@ td { word-break: break-word; }
 .sugg-pct { font-weight: 700; color: #a50e0e; white-space: nowrap; }
 .sugg-option button.ghost { background: transparent; color: #5f6368;
   border: 1px solid #dadce0; }
+
+/* ---- ⓘ details popover ---- */
+.info-wrap { position: relative; display: inline-block; margin-left: 6px; vertical-align: 1px; }
+.info-btn { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid var(--border-strong);
+  background: #fff; color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1;
+  font-family: Georgia, serif; font-style: italic; cursor: help; }
+.info-btn:hover { border-color: var(--accent); color: var(--accent); background: #f6f9fe; }
+.popcard { position: absolute; left: 24px; top: -10px; z-index: 60; width: 460px; max-width: 70vw;
+  max-height: 380px; overflow: auto; background: #fff; border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 4px 18px rgba(60,64,67,.22); padding: 14px 16px;
+  white-space: normal; text-align: left; cursor: default; }
+.popcard-head { display: flex; align-items: center; gap: 8px; }
+.popcard-title { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.popcard-desc { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: #3c4043; }
+.popcard-table { margin-top: 10px; font-size: 12px; }
+.popcard-table th, .popcard-table td { padding: 5px 8px; height: auto; }
+
+/* overlap rows: visible expand affordance */
+.detail-cell { color: var(--accent); font-size: 12.5px; white-space: nowrap; }

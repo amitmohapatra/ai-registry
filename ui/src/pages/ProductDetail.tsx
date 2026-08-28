@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
-import { ConfirmButton, PairBreakdown } from '../components'
+import { ConfirmButton, OverlapPairs, ToolInfo } from '../components'
 
 export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
@@ -12,7 +12,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
   useEffect(() => { api.product(productKey).then(setProduct) }, [productKey])
   if (!product) return null
   const canEdit = product.role === 'admin' || product.role === 'super_admin'
-  const tabs = ['tools', 'agents', 'manage']
+  const tabs = ['tools', 'agents', 'overlaps', 'manage']
   return (
     <>
       <div className="topbar">
@@ -25,6 +25,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
       ))}</div>
       {tab === 'tools' && <Entities productKey={productKey} type="tool" canEdit={canEdit} />}
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
+      {tab === 'overlaps' && <Duplicates productKey={productKey} />}
       {tab === 'manage' && <>
         <Members productKey={productKey} canEdit={canEdit} />
         <Audiences productKey={productKey} canEdit={canEdit}
@@ -45,7 +46,6 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [q, setQ] = useState('')
-  const [showOverlaps, setShowOverlaps] = useState(false)
   const topRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState(false)
   const load = () => api.entitiesPaged(productKey, { type, q, limit: PAGE, offset: page * PAGE })
@@ -62,8 +62,7 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
         <h2>{type === 'tool' ? 'Tools' : 'Agents'}</h2>
         <input className="searchbox" placeholder={`Search ${type}s…`} value={q}
           onChange={e => { setQ(e.target.value); setPage(0) }} />
-        {type === 'tool' && <button className="small" onClick={() => setShowOverlaps(v => !v)}>
-          {showOverlaps ? 'Hide overlaps' : 'Check overlaps'}</button>}
+
         {type === 'tool' && <button className="small" title="Download this product's tools as Excel"
           onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
         {canEdit && type === 'tool' && <Link to={`/p/${productKey}/tools/new`}><button className="primary small">+ New tool</button></Link>}
@@ -76,6 +75,8 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
               {type === 'tool'
                 ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link>
                 : <b className="score">{e.name}</b>}
+              <ToolInfo payload={e.payload} version={e.version}
+                audiences={Object.entries(e.resolved).filter(([, v]: [string, any]) => v?.enabled).map(([a]) => a)} />
               {e.payload.title && <div className="cell-sub" title={e.payload.title}>{e.payload.title}</div>}
             </td>
             <td className="muted">
@@ -101,7 +102,6 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
         <button disabled={(page + 1) * PAGE >= total} onClick={() => { setPage(p => p + 1); topRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>Next ›</button>
       </div>}
     </div>
-    {showOverlaps && <Duplicates productKey={productKey} />}
     </>
   )
 }
@@ -109,23 +109,13 @@ function Entities({ productKey, type, canEdit }: { productKey: string; type: str
 function Duplicates({ productKey }: { productKey: string }) {
   const [scope, setScope] = useState('all')
   const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
-  const [open, setOpen] = useState<string>('')
-  const [explain, setExplain] = useState<any>('idle')
   useEffect(() => { setReport(null); api.duplicates(productKey, scope).then(setReport) }, [productKey, scope])
-  const pct = (s: number) => `${Math.round(s * 100)}%`
-  const toggle = async (p: any) => {
-    const key = p.a.id + p.b.id
-    if (open === key) { setOpen(''); setExplain('idle'); return }
-    setOpen(key); setExplain('loading')
-    const ex = await api.explainPair(productKey, p.a.id, p.b.id).catch(() => null)
-    setExplain(ex ?? 'error')
-  }
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Overlapping tools</h2>
         <div className="row">
-          {report && <span className="muted">flagging ≥ {pct(report.threshold)} — adjust in
+          {report && <span className="muted">flagging ≥ {Math.round(report.threshold * 100)}% — adjust in
             Manage → Similarity</span>}
           <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
             <option value="all">Involving this product</option>
@@ -133,30 +123,8 @@ function Duplicates({ productKey }: { productKey: string }) {
           </select>
         </div>
       </div>
-      <table>
-        <thead><tr><th>Tool A</th><th>Tool B</th><th>Similarity</th><th>Cross-product</th></tr></thead>
-        <tbody>{(report?.pairs ?? []).flatMap((p, i) => {
-          const key = p.a.id + p.b.id
-          const rows = [(
-            <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
-              <td><b className="score">{p.a.product_key}/{p.a.name}</b></td>
-              <td><b className="score">{p.b.product_key}/{p.b.name}</b></td>
-              <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
-              <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}
-                <span className="muted" style={{ marginLeft: 8 }}>{open === key ? '▾' : '▸'}</span></td>
-            </tr>)]
-          if (open === key) rows.push(
-            <tr key={key + 'x'}><td colSpan={4} style={{ background: '#f8f9fa' }}>
-              {explain === 'loading' ? <span className="muted">Analyzing…</span>
-                : explain === 'error' ? <span className="muted">Couldn't load this comparison.</span>
-                : <PairBreakdown ex={explain} />}
-            </td></tr>)
-          return rows
-        })}
-        {report === null && <tr><td colSpan={4} className="muted">Analyzing all pairs…</td></tr>}
-        {report !== null && report.pairs.length === 0 && <tr><td colSpan={4} className="muted">No overlapping pairs at this similarity level. 🎉</td></tr>}
-        </tbody>
-      </table>
+      <OverlapPairs report={report}
+        explain={p => api.explainPair(productKey, p.a.id, p.b.id)} />
     </div>
   )
 }

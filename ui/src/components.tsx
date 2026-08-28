@@ -65,3 +65,99 @@ export function PairBreakdown({ ex }: { ex: any }) {
     </div>
   )
 }
+
+
+/* ⓘ details popover — visible trigger (hover-only reveals are undiscoverable
+   and unusable on touch), opens on hover, focus, or click; one card shows
+   name/title/description/params/audiences without cluttering the table. */
+export function ToolInfo({ payload, version, audiences }:
+  { payload: any; version?: number; audiences?: string[] }) {
+  const [open, setOpen] = useState(false)
+  const props: [string, any][] = Object.entries(payload?.input_schema?.properties ?? {})
+  const req = new Set<string>(payload?.input_schema?.required ?? [])
+  return (
+    <span className="info-wrap" onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}>
+      <button className="info-btn" aria-label={`Details for ${payload?.name}`}
+        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}>i</button>
+      {open && (
+        <div className="popcard" role="dialog" aria-label={`${payload?.name} details`}>
+          <div className="popcard-head">
+            <b className="score">{payload?.name}</b>
+            {version != null && <span className="pill user">v{version}</span>}
+          </div>
+          {payload?.title && <div className="popcard-title">{payload.title}</div>}
+          <p className="popcard-desc">{payload?.description}</p>
+          {props.length > 0 && (
+            <table className="popcard-table">
+              <thead><tr><th>Param</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
+              <tbody>{props.map(([n, sc]) => (
+                <tr key={n}>
+                  <td className="score">{n}</td>
+                  <td>{sc?.type ?? '—'}</td>
+                  <td>{req.has(n) ? '✓' : ''}</td>
+                  <td className="muted">{sc?.description ?? ''}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+          {audiences?.length ? (
+            <div style={{ marginTop: 8 }}>{audiences.map(a =>
+              <span key={a} className="pill aud" style={{ marginRight: 4 }}>{a}</span>)}</div>
+          ) : null}
+        </div>
+      )}
+    </span>
+  )
+}
+
+/* One overlap table for every page — same columns, same expandable breakdown,
+   same cap. Rows expand on click ("Details" makes that discoverable). */
+export function OverlapPairs({ report, explain, cap = 50 }: {
+  report: { threshold: number; pairs: any[] } | null
+  explain: (p: any) => Promise<any>
+  cap?: number
+}) {
+  const [open, setOpen] = useState('')
+  const [detail, setDetail] = useState<any>('idle')
+  const pct = (x: number) => `${Math.round(x * 100)}%`
+  const toggle = async (p: any) => {
+    const k = p.a.id + p.b.id
+    if (open === k) { setOpen(''); setDetail('idle'); return }
+    setOpen(k); setDetail('loading')
+    setDetail(await explain(p).catch(() => 'error') ?? 'error')
+  }
+  const pairs = report?.pairs ?? []
+  const shown = pairs.slice(0, cap)
+  return (
+    <>
+    <table>
+      <thead><tr><th>Tool A</th><th>Tool B</th><th>Similarity</th><th>Cross-product</th><th /></tr></thead>
+      <tbody>{shown.flatMap((p, i) => {
+        const k = p.a.id + p.b.id
+        const rows = [(
+          <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
+            <td><b className="score">{p.a.product_key}/{p.a.name}</b></td>
+            <td><b className="score">{p.b.product_key}/{p.b.name}</b></td>
+            <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
+            <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>
+            <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
+          </tr>)]
+        if (open === k) rows.push(
+          <tr key={k + 'x'}><td colSpan={5} style={{ background: '#f8f9fa' }}>
+            {detail === 'loading' ? <span className="muted">Analyzing…</span>
+              : detail === 'error' ? <span className="muted">Couldn't load this comparison.</span>
+              : <PairBreakdown ex={detail} />}
+          </td></tr>)
+        return rows
+      })}
+      {report === null && <tr><td colSpan={5} className="muted">Analyzing all pairs…</td></tr>}
+      {report !== null && pairs.length === 0 && <tr><td colSpan={5} className="muted">
+        No overlapping pairs at ≥ {pct(report.threshold)}. 🎉</td></tr>}
+      </tbody>
+    </table>
+    {pairs.length > cap && <p className="muted" style={{ marginTop: 8 }}>
+      Showing the top {cap} of {pairs.length} pairs, highest similarity first.</p>}
+    </>
+  )
+}
