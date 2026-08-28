@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..deps import require_member, require_product_admin
+from ..deps import require_member
 from ..models import Entity
 from ..services import audit, embedder
 from ..similarity import apply_rerank, embed_text_of, explain_pair, name_similarity, rank
