@@ -8,7 +8,7 @@ import { PairBreakdown } from '../components'
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number
-  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: { text: string; new_overall?: number } | null; description_tip: string; resolution_hint?: string | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number }[]; current_name_match?: number; title_suggestion?: string | null; description_suggestion?: { text: string; new_overall?: number } | null; description_tip: string; resolution_hint?: string | null; fix?: { name: string; title: string; description: string; validated_max: number; checked_against: number } | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -161,7 +161,9 @@ export default function ToolEditor() {
           basePayload={payload} setOverlay={setOverlay} errFor={errFor}
           preview={preview} errors={errors} />
       )}
-      <SimilarPanel entityId={entityId} matches={matches} />
+      <SimilarPanel entityId={entityId} matches={matches}
+        dirty={!isNew && savedPayload !== null &&
+               JSON.stringify(payload) !== JSON.stringify(savedPayload)} />
       {!isNew && (
             <div className="card">
               <h2>Version history</h2>
@@ -199,8 +201,8 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
 }
 
 /* ---------- similar tools: expandable rows, same experience as Check overlaps ---------- */
-function SimilarPanel({ entityId, matches }:
-  { entityId?: string; matches: Matches | null }) {
+function SimilarPanel({ entityId, matches, dirty }:
+  { entityId?: string; matches: Matches | null; dirty?: boolean }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<Record<string, any>>({})
   const th = matches?.threshold ?? 0.5
@@ -219,7 +221,7 @@ function SimilarPanel({ entityId, matches }:
 
   return (
     <div className="card">
-      <h2>Similar tools <span className="muted">(live, across all products)</span></h2>
+      <h2>Similar tools <span className="muted">(live, across all products{dirty ? ' — reflecting your unsaved edits; the overlap page shows the saved version' : ''})</span></h2>
       <table><tbody>{visible.slice(0, 5).flatMap(m => {
         const rows = [(
           <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
@@ -281,6 +283,19 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                   </span>
                 ))}
             </span>
+          )}
+          {matches.suggestions?.fix && (
+            <div className="sugg-row">
+              <span className="sugg-label">Fix</span>
+              <button className="primary small"
+                title={`name: ${matches.suggestions.fix.name}\ntitle: ${matches.suggestions.fix.title}\ndescription: ${matches.suggestions.fix.description}`}
+                onClick={() => { const f = matches.suggestions!.fix!
+                  set({ name: f.name, title: f.title, description: f.description }) }}>
+                Apply verified fix → {Math.round(matches.suggestions.fix.validated_max * 100)}%
+              </button>
+              <span className="muted" style={{ fontWeight: 400 }}>
+                checked against {matches.suggestions.fix.checked_against} tools across all products</span>
+            </div>
           )}
           {matches.suggestions?.names?.length ? (
             <div className="sugg-row">

@@ -99,11 +99,18 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             from ..suggestions import build_suggestions
             other = await db.get(Entity, top["id"])
             if other:
+                from ..suggestions import build_fix_bundle
                 taken = {c["name"] for c in cands} | {payload.get("name", "")}
                 suggestions = build_suggestions(
                     payload, other.payload, product.key, taken,
                     name_collision=(top.get("name_sim") or 0) >= 0.8 or top["score"] >= threshold,
                     threshold=threshold)
+                # verify a full fix against every nearby tool across ALL products
+                nearby_ids = [m["id"] for m in matches[:6]
+                              if m["id"] != payload.get("_entity_id")]
+                nearby = [c["payload"] for c in cands if c["id"] in nearby_ids]
+                suggestions["fix"] = build_fix_bundle(
+                    payload, nearby, product.key, taken, threshold)
     return {"matches": matches, "top_explain": top_explain, "threshold": threshold,
             "suggestions": suggestions}
 

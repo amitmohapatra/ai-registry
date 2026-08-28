@@ -301,6 +301,14 @@ def _INFLECT(w: str) -> set:
     return {w, w + "s", w + "es", w + "d", w + "ed", w + "ing"}
 
 
+def is_action_word(token: str) -> bool:
+    """True if the token is a known action verb (any inflection) — action words
+    make poor *distinguishing anchors* (they say what a tool does, not what
+    it is about)."""
+    t = token.lower()
+    return any(t in _INFLECT(w) for words in _ACTION_CLASSES.values() for w in words)
+
+
 def action_class(text: str) -> Optional[str]:
     """First recognizable action verb's class — for tools, the verb IS the capability."""
     tokens = _TOKEN.findall(text.lower())

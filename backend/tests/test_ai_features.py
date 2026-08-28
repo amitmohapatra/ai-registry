@@ -214,3 +214,46 @@ def test_description_suggestion_idempotent_and_hint():
              "input_schema": {"type": "object", "properties": {}}}
     s = build_suggestions(draft, other, "shipping", {"get_invoice"}, True, 0.5)
     assert s["description_suggestion"] is None
+
+
+def test_fix_bundle_generate_and_test():
+    """The fix bundle is only returned when VERIFIED below threshold against
+    every provided tool; a pseudo-semantic stub (token overlap drives the
+    score) proves the affirmative rewrite mechanism works."""
+    import math
+    from app.suggestions import build_fix_bundle
+    import app.similarity as sim
+
+    class TokenOverlapReranker:
+        """Deterministic stand-in: score reflects shared-token fraction."""
+        def score_pairs(self, q, cands):
+            out = []
+            qs = set(q.lower().split())
+            for c in cands:
+                cs = set(c.lower().split())
+                j = len(qs & cs) / (len(qs | cs) or 1)
+                out.append(round(1 / (1 + math.exp(-(j * 8 - 2))), 4))
+            return out
+
+    draft = {"name": "fetch_invoice",
+             "description": "Retrieve the freight invoice for a shipment by its identifier.",
+             "input_schema": {"type": "object", "properties": {"shipment_id": {"type": "string"}}},
+             "annotations": {"readOnlyHint": True}}
+    other = {"name": "get_invoice",
+             "description": "Fetch a single invoice by its ID, including line items and payment state.",
+             "input_schema": {"type": "object", "properties": {"invoice_id": {"type": "string"}}},
+             "annotations": {"readOnlyHint": True}}
+    sim._reranker = TokenOverlapReranker()
+    try:
+        fix = build_fix_bundle(draft, [other], "shipping", {"get_invoice"}, 0.5)
+        assert fix is not None
+        # the promise is VERIFIED: applying the bundle scores below threshold
+        applied = {**draft, "name": fix["name"], "title": fix["title"],
+                   "description": fix["description"]}
+        assert sim.blend_breakdown(sim.reranker(), applied, other)["overall"] < 0.5
+        assert fix["validated_max"] < 0.48
+        assert fix["checked_against"] == 1
+        # verbs never used as anchors in the rewrite
+        assert "retrieve" not in fix["description"].lower().split()[0]
+    finally:
+        sim._reranker = None

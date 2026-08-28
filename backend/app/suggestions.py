@@ -6,7 +6,8 @@ instead' is always safe to click."""
 import re
 from typing import List, Optional, Set
 
-from .similarity import NoopReranker, blend_breakdown, desc_text_of, name_similarity, reranker
+from .similarity import (NoopReranker, blend_breakdown, desc_text_of, is_action_word,
+                         name_similarity, reranker)
 
 _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -31,7 +32,8 @@ def _distinct_tokens(draft: dict, other: dict) -> List[str]:
     own_params = list((draft.get("input_schema") or {}).get("properties", {}))
     for source in (desc_text_of(draft), " ".join(own_params).replace("_", " ")):
         for t in _TOKEN.findall(source.lower()):
-            if len(t) > 3 and t not in _STOP and t not in other_tokens and t not in mine:
+            if (len(t) > 3 and t not in _STOP and t not in other_tokens
+                    and t not in mine and not is_action_word(t)):
                 mine.append(t)
     return mine
 
@@ -74,6 +76,50 @@ def description_tip(draft: dict, other: dict) -> Optional[str]:
     return (f"The description doesn't say anything that {other_name} doesn't already "
             f"say. Add what makes this tool different — its data source, its scope, "
             f"or when someone should pick it over {other_name}.")
+
+
+def _rewrite_candidates(draft: dict, other: dict, product_key: str) -> List[str]:
+    """Affirmative rewrites (research: models barely register negation — 'Unlike X'
+    keeps the similarity; a rewrite must CHANGE what the text asserts). Lead with
+    the distinct terms, drop the shared phrasing, stay positive."""
+    d = _distinct_tokens(draft, other)
+    params = list((draft.get("input_schema") or {}).get("properties", {}))
+    main_param = (params[0].replace("_", " ") if params else "identifier")
+    out = []
+    if len(d) >= 2:
+        out.append(f"{d[0].capitalize()} {d[1]} lookup for {product_key}: returns the "
+                   f"{d[0]} {d[1]} record matching a given {main_param}.")
+        out.append(f"Look up the {d[0]} {d[1]} held in {product_key} for a specific "
+                   f"{main_param}; no other record types are returned.")
+    elif d:
+        out.append(f"{d[0].capitalize()} lookup for {product_key}: returns the {d[0]} "
+                   f"record matching a given {main_param}.")
+    return out
+
+
+def build_fix_bundle(draft: dict, others: List[dict], product_key: str,
+                     taken: Set[str], threshold: float) -> Optional[dict]:
+    """Generate-and-TEST: propose name+title+description combinations and only
+    return one whose blended match is verified below the threshold against
+    EVERY provided tool (all products). No unverified promises."""
+    rr = reranker()
+    if isinstance(rr, NoopReranker) or not others:
+        return None
+    top = others[0]
+    name_opts = [draft.get("name", "")] + suggest_names(draft, top, product_key, taken)[:1]
+    desc_opts = _rewrite_candidates(draft, top, product_key)
+    best = None
+    for desc in desc_opts:
+        for name in name_opts:
+            candidate = {**draft, "name": name, "title": humanize(name),
+                         "description": desc}
+            worst = max(blend_breakdown(rr, candidate, o)["overall"] for o in others)
+            if worst < threshold - 0.02 and (best is None or worst < best["validated_max"]):
+                best = {"name": name, "title": humanize(name), "description": desc,
+                        "validated_max": round(worst, 2), "checked_against": len(others)}
+        if best and best["name"] == draft.get("name", ""):
+            break                                    # minimal change wins
+    return best
 
 
 def build_suggestions(draft: dict, other: dict, product_key: str,
