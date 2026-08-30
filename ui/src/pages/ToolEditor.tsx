@@ -395,10 +395,21 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
   useEffect(() => {
     if (flagged) setLastFlagged({ score: top.score, name: top.name, product_key: top.product_key })
   }, [flagged, top?.score, top?.name])
-  if (aud && !flagged && !wasFlagged) return null   // audience tabs: show problems AND the moment they clear
+  // every state renders something: checking, clean, fixed, or flagged —
   return (
     <>
-      {!aud && checking && !matches && <p className="muted" style={{ margin: '6px 0 0' }}>Checking similarity…</p>}
+      {checking && !flagged && (
+        <p className="muted" style={{ margin: '6px 0 0' }}>
+          <span className="rescore" style={{ margin: 0 }}><span className="spin" /> checking similarity…</span>
+        </p>
+      )}
+      {!checking && !flagged && !wasFlagged && top && (
+        <p className="muted" style={{ margin: '6px 0 0' }}>
+          <span className="dot green" /> No conflicts — closest match is{' '}
+          <b className="score">{top.product_key}/{top.name}</b> at {Math.round(top.score * 100)}%
+          (threshold {Math.round(th * 100)}%).
+        </p>
+      )}
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
@@ -466,7 +477,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           ) : null}
         </div>
       )}
-      {!flagged && wasFlagged && top && (
+      {!checking && !flagged && wasFlagged && top && (
         <div className="ok-banner" style={{ marginTop: 6 }}>
           ✓ Looks distinct now — <s className="muted">{Math.round(lastFlagged.score * 100)}%</s>{' '}
           → <b>{Math.round(top.score * 100)}%</b>
