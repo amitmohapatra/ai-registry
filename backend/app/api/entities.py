@@ -232,11 +232,50 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
     cands = await _candidates(db, within_product_id)
     th = threshold or await product_threshold(db)
 
+    # every PUBLISHED audience override is a real description served to models,
+    # so each variant competes in the scan; the worst variant of a pair drives.
+    # Variants get synthetic ids (id::audience); pairs collapse back afterwards.
+    expanded, need_vecs = [], []
+    for c in cands:
+        expanded.append(c)
+        for aud, ov in (c["payload"].get("audiences") or {}).items():
+            o = (ov or {}).get("overrides") or {}
+            if (ov or {}).get("enabled") is False:
+                continue
+            if not (o.get("description") or o.get("title")):
+                continue
+            vp = {**c["payload"]}
+            vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
+            v = {**c, "id": f"{c['id']}::{aud}", "payload": vp,
+                 "text": embed_text_of(vp), "vec": None}
+            expanded.append(v); need_vecs.append(v)
+    if need_vecs:
+        from ..services import embedder
+        vecs = await embedder().embed([v["text"] for v in need_vecs])
+        for v, vec in zip(need_vecs, vecs, strict=False):
+            v["vec"] = vec
+
     def _scan():
         # cosine casts a wide net (lower floor), the field-blend gives the final say
-        pairs = duplicate_pairs(cands, max(0.3, th * 0.6))
-        pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in cands})
-        return [p for p in pairs if p["score"] >= th]
+        base = lambda x: x.split("::")[0]
+        pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
+        pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
+        pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
+        best: dict = {}
+        for p in pairs:                    # one row per tool pair, worst wins
+            a_id, b_id = base(p["a"]["id"]), base(p["b"]["id"])
+            key = tuple(sorted((a_id, b_id)))
+            if key in best and best[key]["score"] >= p["score"]:
+                continue
+            auds = {side: pid.split("::")[1]
+                    for side, pid in (("a", p["a"]["id"]), ("b", p["b"]["id"]))
+                    if "::" in pid}
+            q = {**p, "a": {**p["a"], "id": a_id}, "b": {**p["b"], "id": b_id}}
+            if auds:
+                q["audiences"] = auds
+            best[key] = q
+        return sorted((p for p in best.values() if p["score"] >= th),
+                      key=lambda p: -p["score"])
 
     await db.close()          # release the pooled connection during CPU work
     async with _score_gate:                        # CPU work off the event loop
