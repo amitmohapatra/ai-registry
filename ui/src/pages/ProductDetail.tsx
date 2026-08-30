@@ -184,6 +184,7 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
         <form className="onboard-row" onSubmit={add}>
           <div style={{ flex: 2, position: 'relative' }}>
             <input autoFocus placeholder="Search users by email or name…" value={email}
+              autoComplete="off" name="member-picker" spellCheck={false}
               onChange={e => { setEmail(e.target.value); setPickOpen(true) }}
               onFocus={() => setPickOpen(true)}
               onBlur={() => window.setTimeout(() => setPickOpen(false), 150)} />
@@ -207,7 +208,7 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
             <option value="user">user (read-only)</option>
             <option value="admin">admin (can edit tools)</option>
           </select>
-          <button className="primary">Add / update</button>
+          <button className="primary">Add</button>
           {err && <div className="field-err" style={{ flexBasis: '100%' }}>{err}</div>}
         </form>
       )}
@@ -215,7 +216,17 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
         <thead><tr><th>Email</th><th>Name</th><th>Role</th><th /></tr></thead>
         <tbody>{members.map(m => (
           <tr key={m.user_id}><td>{m.email}</td><td>{m.name}</td>
-            <td><span className={`pill ${m.role}`}>{m.role}</span></td>
+            <td>{canEdit ? (
+              <select style={{ width: 180 }} value={m.role}
+                title="Change this member's role — applies immediately"
+                onChange={async e => {
+                  await api.upsertMember(productKey, { email: m.email, role: e.target.value })
+                  toast(`${m.email} is now ${e.target.value}`); load()
+                }}>
+                <option value="user">user (read-only)</option>
+                <option value="admin">admin (can edit tools)</option>
+              </select>
+            ) : <span className={`pill ${m.role}`}>{m.role}</span>}</td>
             <td>{canEdit && <ConfirmButton icon label="Remove member" confirmLabel="Remove?"
               onConfirm={async () => {
                 await api.removeMember(productKey, m.user_id); toast(`Removed ${m.email}`); load()
