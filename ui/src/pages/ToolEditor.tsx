@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
@@ -505,7 +505,14 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 and remove this tool (or vice versa).
               </p>
               <p style={{ margin: '4px 0', fontWeight: 400 }}>
-                <b>2.</b> They differ → say how, in the description. Fill this frame with your
+                <b>2.</b> The conflict may be fixable from the other side — its wording may have
+                drifted into this tool's domain:{' '}
+                <RouterLink to={`/p/${top.product_key}/tools/${top.id}`}>
+                  open {top.product_key}/{top.name}</RouterLink>{' '}
+                and check its warning for verified rewrites of this pair.
+              </p>
+              <p style={{ margin: '4px 0', fontWeight: 400 }}>
+                <b>3.</b> They differ → say how, in this description. Fill this frame with your
                 data source, when to use which, and what this tool never does:
               </p>
               {matches.suggestions.template && (
