@@ -203,7 +203,7 @@ export default function ToolEditor() {
         )}
       </div>
       {tab === 'base' ? (
-        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
+        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
@@ -262,7 +262,18 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
   )
 }
 
-function SimilarityWarning({ matches, checking, payload, set, dirty, aud }: any) {
+function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty, aud }: any) {
+  // a fix must land on the TEXT that collides: base description normally, or
+  // the driving audience's override when the warning says an override drives
+  const applyDesc = (desc: string) => {
+    const drv = (matches as any)?.flagged_audience
+    if (drv && setOverlay) {
+      setOverlay(drv, (o: any) => ({ ...o, overrides: { ...(o.overrides ?? {}), description: desc } }))
+      return drv
+    }
+    set({ description: desc })
+    return null
+  }
   const [wasFlagged, setWasFlagged] = useState(false)
   const [showResDesc, setShowResDesc] = useState<number | null>(null)
   const th = matches?.threshold ?? 0.5
@@ -327,8 +338,11 @@ function SimilarityWarning({ matches, checking, payload, set, dirty, aud }: any)
                     <button className="icon-act" disabled={checking}
                       title={checking ? 'Re-scoring — one moment' : 'Apply name, title and description'}
                       aria-label={`Apply option ${i + 1}`}
-                      onClick={() => { set({ name: p.name, title: p.title, description: p.description })
-                        toast('Applied — re-scoring against every product…') }}>✓</button>
+                      onClick={() => {
+                        set({ name: p.name, title: p.title })
+                        const drv = applyDesc(p.description)
+                        toast(drv ? `Applied — updated your ${drv} override; re-scoring…`
+                                  : 'Applied — re-scoring against every product…') }}>✓</button>
                   </div>
                   {showResDesc === i && <div className="resolve-desc">{p.description}</div>}
                 </div>
@@ -348,7 +362,7 @@ function SimilarityWarning({ matches, checking, payload, set, dirty, aud }: any)
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
@@ -361,7 +375,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} dirty={dirty} />
+      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -448,7 +462,7 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
             })}>Reset to base description</button>
         )}
-        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} aud={aud} />
+        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
         <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the Base tab —
           audiences differ only in wording, never in schema.</p>
       </>)}
