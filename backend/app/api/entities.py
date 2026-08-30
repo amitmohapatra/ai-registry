@@ -149,10 +149,12 @@ async def dry_run(body: EntityIn, ctx: tuple = Depends(require_member),
     the preview and the commit path are the same code, so the preview cannot lie."""
     product, _, _ = ctx
     auds = await audience_keys(db, product.id)
-    errors = ov.validate_entity(body.type, body.payload, auds)
+    from ..services import fold_external_text
+    folded = fold_external_text(dict(body.payload or {}))
+    errors = ov.validate_entity(body.type, folded, auds)
     if errors:
         return DryRunOut(valid=False, errors=errors)
-    return DryRunOut(valid=True, resolved=ov.resolve_all(body.type, body.payload, auds))
+    return DryRunOut(valid=True, resolved=ov.resolve_all(body.type, folded, auds))
 
 # ---- versions & rollback ----
 

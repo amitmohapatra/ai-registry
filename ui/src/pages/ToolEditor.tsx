@@ -184,8 +184,9 @@ export default function ToolEditor() {
         ))}</div>
       )}
       <div className="tabs">
-        <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}>Base</button>
-        {audiences.map(a => (
+        <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}
+          title="The definition every caller gets — external is the base">external</button>
+        {audiences.filter(a => a !== 'external').map(a => (
           <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
             {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
         ))}
@@ -203,14 +204,14 @@ export default function ToolEditor() {
         )}
       </div>
       {tab === 'base' ? (
-        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
+        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay} setTab={setTab}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
-          basePayload={payload} setOverlay={setOverlay}
+          basePayload={payload} setOverlay={setOverlay} setTab={setTab}
           matches={matches} checking={checking} set={set} />
       ) : null}
 
@@ -262,7 +263,10 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
   )
 }
 
-function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty, aud }: any) {
+function SimilarityWarning({ matches, checking, payload, set, setOverlay, setTab, dirty, aud }: any) {
+  const drv = (matches as any)?.flagged_audience ?? null   // null = external/base text drives
+  const here = aud ?? null
+  const owns = drv === here
   // a fix must land on the TEXT that collides: base description normally, or
   // the driving audience's override when the warning says an override drives
   const applyDesc = (desc: string) => {
@@ -304,12 +308,19 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 ))}
             </span>
           )}
-          {!matches.suggestions && (
+          {!owns && (
+            <div className="sugg-row" style={{ marginTop: 8, fontWeight: 400 }}>
+              The colliding text lives on the <b>{drv ?? 'external'}</b> tab —
+              <button className="small" style={{ marginLeft: 8 }}
+                onClick={() => setTab?.(drv ?? 'base')}>fix it there</button>
+            </div>
+          )}
+          {owns && !matches.suggestions && (
             <div className="sugg-row" style={{ marginTop: 8 }}>
               <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
             </div>
           )}
-          {matches.suggestions?.packages?.length ? (
+          {owns && matches.suggestions?.packages?.length ? (
             <div className={`resolve-card ${checking ? 'rechecking' : ''}`}>
               <div className="resolve-head">
                 <span className="dot green" /> Pick a resolution
@@ -362,7 +373,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, setTab }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
@@ -375,7 +386,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} />
+      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} setTab={setTab} dirty={dirty} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -438,7 +449,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -452,7 +463,7 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
       </div>
       {enabled && (<>
         <label>Description for {aud} <span className="muted" style={{ fontWeight: 400 }}>
-          {('description' in ov) ? '(overridden)' : '(inheriting base — start typing to override)'}</span></label>
+          {('description' in ov) ? '(overridden)' : '(inheriting external — start typing to override)'}</span></label>
         <textarea value={ov.description ?? basePayload.description ?? ''}
           placeholder={basePayload.description}
           onChange={e => setOv({ description: e.target.value })} />
@@ -460,11 +471,11 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
           <button className="small" style={{ marginTop: 4 }} onClick={() =>
             setOverlay(aud, (o: Overlay) => {
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
-            })}>Reset to base description</button>
+            })}>Reset to external description</button>
         )}
-        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
-        <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the Base tab —
-          audiences differ only in wording, never in schema.</p>
+        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} setTab={setTab} aud={aud} />
+        <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the external tab —
+          internal differs only in wording, never in schema.</p>
       </>)}
     </div>
   )

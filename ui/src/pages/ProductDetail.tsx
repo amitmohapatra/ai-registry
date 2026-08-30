@@ -232,7 +232,7 @@ function Audiences({ productKey, canEdit, onChanged }:
           <input type="checkbox" checked={hasInternal} disabled={!canEdit || busy || audiences === null}
             onChange={e => toggleInternal(e.target.checked)} />
           {' '}<b>internal</b>
-          <span className="muted"> — enable to give internal callers their own tool views
+          <span className="muted"> — enable to let internal callers get their own wording (inherits external until overridden)
             {hasInternal ? '' : ' (unchecking later strips its overrides from every tool)'}</span>
         </label>
       </div>

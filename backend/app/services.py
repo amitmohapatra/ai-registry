@@ -99,9 +99,34 @@ async def reembed(db: AsyncSession, entity: Entity) -> None:
     entity.embedding_model = embedder().name
 
 
+def fold_external_text(payload: dict) -> dict:
+    """External IS the definition: any external description/title override is
+    folded into the base fields (one canonical text, internal inherits it).
+    External PARAMETER ops (hide/pin/add) remain a supported API capability."""
+    auds = payload.get("audiences") or {}
+    ov = (auds.get("external") or {}).get("overrides") or {}
+    if not (ov.get("description") or ov.get("title")):
+        return payload
+    out = {**payload, "audiences": {**auds}}
+    ext = {**auds["external"], "overrides": {**ov}}
+    for k in ("description", "title"):
+        if ext["overrides"].get(k):
+            out[k] = ext["overrides"].pop(k)
+    if not ext["overrides"]:
+        ext.pop("overrides")
+    if ext:
+        out["audiences"]["external"] = ext
+    else:
+        out["audiences"].pop("external")
+    if not out["audiences"]:
+        out.pop("audiences")
+    return out
+
+
 async def write_entity(db: AsyncSession, product: Product, entity: Optional[Entity],
                        entity_type: str, payload: dict, author_id: str, note: str = "") -> tuple:
     """The atomic pipeline. Returns (entity, errors). Nothing partial ever commits."""
+    payload = fold_external_text(dict(payload or {}))
     auds = await audience_keys(db, product.id)
     errors = ov.validate_entity(entity_type, payload, auds)
     if errors:

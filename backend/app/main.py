@@ -32,9 +32,32 @@ async def bootstrap():
             await db.commit()
 
 
+async def _fold_legacy_external_text():
+    """One-time: external text overrides predate 'external is the base'; fold
+    them so published data matches the model (versioned, cache-invalidating)."""
+    from .db import session_factory
+    from .models import Entity, EntityVersion
+    from .services import fold_external_text
+    from sqlalchemy import select as _select
+    async with session_factory()() as db:
+        rows = (await db.execute(_select(Entity).where(Entity.is_deleted == False))).scalars().all()  # noqa: E712
+        for e in rows:
+            folded = fold_external_text(dict(e.payload))
+            if folded != e.payload:
+                e.payload = folded
+                e.version += 1
+                db.add(EntityVersion(entity_id=e.id, version=e.version, payload=folded,
+                                     note="external text override folded into base"))
+        await db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await bootstrap()
+    try:
+        await _fold_legacy_external_text()
+    except Exception:
+        pass
 
     def _warm_models():
         # load + JIT the scoring models off the event loop so the first
