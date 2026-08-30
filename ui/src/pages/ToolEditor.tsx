@@ -182,28 +182,36 @@ export default function ToolEditor() {
           <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
             {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
         ))}
+        {!isNew && (
+          <button className={tab === 'similar' ? 'active' : ''} onClick={() => setTab('similar')}>
+            Similar tools
+            {savedMatches && ((savedMatches.matches ?? []).some(m => m.score >= (savedMatches.threshold ?? 0.5))
+              ? <span className="dot red" title="Overlaps at or above the threshold" />
+              : <span className="dot green" title="No overlaps" />)}
+          </button>
+        )}
+        {!isNew && (
+          <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
+            History{versions.length ? ` (${versions.length})` : ''}</button>
+        )}
       </div>
-      <div className="editor-grid">
-        <div className="editor-main">
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
-      ) : (
+      ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
           basePayload={payload} setOverlay={setOverlay} errFor={errFor}
           preview={preview} errors={errors} matches={matches} checking={checking} set={set} />
-      )}
-        </div>
-        {!isNew && (
-          <aside className="editor-rail">
-            {<SimilarPanel entityId={entityId} matches={savedMatches} />}
-            {(
-            <details className="card collapsible">
-              <summary><h2>Version history <span className="muted">({versions.length} version{versions.length === 1 ? '' : 's'} — click to expand)</span></h2></summary>
-              <table><tbody>{versions.map(v => (
+      ) : null}
+
+      {tab === 'similar' && !isNew && <SimilarPanel entityId={entityId} matches={savedMatches} />}
+      {tab === 'history' && !isNew && (
+        <div className="card">
+          <h2>Version history</h2>
+          <table><tbody>{versions.map(v => (
                 <tr key={v.version}><td className="score">v{v.version}</td>
                   <td className="muted">{v.note || '—'}</td>
                   <td className="muted">{new Date(v.created_at).toLocaleString()}</td>
@@ -217,11 +225,8 @@ export default function ToolEditor() {
                         toast(`v${v.version} is active again`)
                       }}>Make active</button>}</td></tr>
               ))}</tbody></table>
-            </details>
+        </div>
       )}
-          </aside>
-        )}
-      </div>
     </>
   )
 }
@@ -291,7 +296,7 @@ function SimilarPanel({ entityId, matches }:
   )
 }
 
-function SimilarityWarning({ matches, checking, set, dirty, aud }: any) {
+function SimilarityWarning({ matches, checking, payload, set, dirty, aud }: any) {
   const [wasFlagged, setWasFlagged] = useState(false)
   const [showResDesc, setShowResDesc] = useState<number | null>(null)
   const th = matches?.threshold ?? 0.5
@@ -337,10 +342,12 @@ function SimilarityWarning({ matches, checking, set, dirty, aud }: any) {
                 <div key={i}>
                   <div className="pkg-row">
                     <span className="pkg-num">{i + 1}</span>
-                    <b className="score">{p.name}</b>
-                    <span className="muted">·</span>
-                    <span className="pkg-title">{p.title}</span>
-                    <span className="muted">·</span>
+                    {p.name !== payload.name
+                      ? <><b className="score">{p.name}</b><span className="muted">·</span></>
+                      : <span className="muted">keep the name —</span>}
+                    {p.title && p.title !== payload.title && (
+                      <><span className="pkg-title">{p.title}</span><span className="muted">·</span></>
+                    )}
                     <button className="small" onClick={() => setShowResDesc(v => v === i ? null : i)}>
                       {showResDesc === i ? 'hide description' : 'description'}</button>
                     <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
@@ -387,7 +394,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      <SimilarityWarning matches={matches} checking={checking} set={set} dirty={dirty} />
+      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} dirty={dirty} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -515,7 +522,7 @@ function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, p
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
             })}>Reset to base description</button>
         )}
-        <SimilarityWarning matches={matches} checking={checking} set={set} aud={aud} />
+        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} aud={aud} />
 
         <label style={{ marginTop: 14 }}>Parameters for {aud}</label>
         <table>
