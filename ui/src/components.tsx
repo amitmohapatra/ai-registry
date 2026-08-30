@@ -174,3 +174,9 @@ export function OverlapPairs({ report, explain, cap = 50, showCross = true,
     </>
   )
 }
+
+
+/** Map a pair-side view label to the audience whose override to explain:
+ * a real audience key passes through, composites/base/all mean base text. */
+export const viewAud = (v?: string) =>
+  v && v !== 'all' && v !== 'base' && !v.includes(',') ? v : ''

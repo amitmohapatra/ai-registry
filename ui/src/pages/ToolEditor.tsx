@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
-import { OverlapPairs } from '../components'
+import { OverlapPairs, viewAud } from '../components'
 
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
@@ -223,7 +223,7 @@ export default function ToolEditor() {
           <OverlapPairs report={savedReport} showCross={false}
             labels={['This tool', 'Overlaps with']}
             explain={p => api.explainPair(productKey, p.a.id, p.b.id,
-              p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />
+              viewAud(p.a.view), viewAud(p.b.view))} />
         </div>
       )}
       {tab === 'history' && !isNew && (
@@ -278,7 +278,8 @@ function SimilarityWarning({ matches, checking, payload, set, dirty, aud }: any)
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
           <b className="score">{top.product_key}/{top.name}</b>
           <span className="muted"> (threshold {Math.round(th * 100)}%{dirty ? ' · based on your unsaved edits — the overlap page shows the saved version' : ''})</span>
-          {(matches as any).flagged_audience && <span className="muted"> · driven by the <b>{(matches as any).flagged_audience}</b> audience's override text</span>}
+          {(matches as any).flagged_audience && <span className="muted"> · driven by your <b>{(matches as any).flagged_audience}</b> override text</span>}
+          {(top as any).match_view && (top as any).match_view !== 'base' && <span className="muted"> · vs their <b>{(top as any).match_view}</b> text</span>}
           {checking && <span className="muted"> · rechecking…</span>}
           {(top as any).breakdown?.contributions && (
             <span style={{ marginLeft: 10, fontWeight: 400 }}>

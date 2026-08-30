@@ -127,39 +127,74 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
 
     vec = (await embedder().embed([text]))[0]
 
+    def _views_of(p: dict):
+        """Every published view of a payload: base + each audience override."""
+        views = [("base", p)]
+        for aud, ov in (p.get("audiences") or {}).items():
+            o = (ov or {}).get("overrides") or {}
+            if (ov or {}).get("enabled") is False:
+                continue
+            if o.get("description") or o.get("title"):
+                vp = {**p}
+                vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
+                views.append((aud, vp))
+        return views
+
     def _score():
+        from ..similarity import NoopReranker, blend_breakdown, reranker
         from ..suggestions import build_suggestions
         pl = dict(payload)
         # while-typing tier reranks only the top few — the warning shows the
         # top match; the full net is reserved for suggestion validation
         top_k = int(tune["candidate_top_k"]) if body.suggestions else 3
         matches = rank(vec, text, cands, top_k=top_k, exclude_id=exclude)
-        matches = apply_rerank(pl, matches, by_id)
+        rr = reranker()
+        neural = not isinstance(rr, NoopReranker)
+
+        def rescore(drafts):
+            """Draft views x candidate views: the WORST combination drives each
+            match — a clean base can no longer hide a colliding override on
+            EITHER side of the pair."""
+            if not neural:
+                return apply_rerank(drafts[0][1], [dict(m) for m in matches], by_id), None
+            out, worst_draft_view = [], None
+            best_top = -1.0
+            for m in matches:
+                other = by_id.get(m["id"])
+                if other is None:
+                    out.append(dict(m)); continue
+                best = None
+                for d_view, d_pl in drafts:
+                    for o_view, o_pl in _views_of(other):
+                        bd = blend_breakdown(rr, d_pl, o_pl)
+                        if best is None or bd["overall"] > best[0]["overall"]:
+                            best = (bd, d_view, o_view)
+                q = dict(m)
+                q["score"] = best[0]["overall"]
+                q["breakdown"] = best[0]
+                q["match_view"] = best[2]          # which of THEIR views collided
+                q["draft_view"] = best[1]          # which of OUR views collided
+                out.append(q)
+            out.sort(key=lambda x: -x["score"])
+            return out, out[0]["draft_view"] if out else None
+
+        draft_views = _views_of(pl)
+        matches, top_draft_view = rescore(draft_views)
         for m in matches:
             m["name_sim"] = name_similarity(pl.get("name", ""), m["name"])
-
-        # audience overlays can override description/title — an audience's text
-        # can collide even when the base text is clean, so the WORST variant drives
-        flagged_audience = None
-        for aud_key, ov in (pl.get("audiences") or {}).items():
-            o = (ov or {}).get("overrides") or {}
-            if not (o.get("description") or o.get("title")):
-                continue
-            variant = {**pl}
-            variant.update({k: o[k] for k in ("description", "title") if o.get(k)})
-            v_matches = apply_rerank(variant, [dict(m) for m in matches], by_id)
-            if v_matches and matches and v_matches[0]["score"] > matches[0]["score"]:
-                matches = v_matches
-                pl = variant                        # suggestions target the worst text
-                flagged_audience = aud_key
+        flagged_audience = top_draft_view if top_draft_view not in (None, "base") else None
+        if flagged_audience:                        # suggestions target the worst text
+            pl = dict(next(p for v, p in draft_views if v == flagged_audience))
 
         top_explain = None
         if body.suggestions and matches and matches[0]["score"] >= min(0.4, threshold):
             other_pl = by_id.get(matches[0]["id"])
             if other_pl is not None:
+                mv = matches[0].get("match_view")
+                other_view = dict(_views_of(other_pl))
                 top_explain = {"other": {"id": matches[0]["id"], "name": matches[0]["name"],
                                          "product_key": matches[0]["product_key"]},
-                               **explain_pair(pl, other_pl)}
+                               **explain_pair(pl, other_view.get(mv, other_pl))}
         suggestions = None
         if matches and body.suggestions:
             top = matches[0]
@@ -167,7 +202,12 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                        or (top.get("name_sim") or 0) >= tune["name_collision_sim"])
             if flagged and top["id"] in by_id:
                 taken = {c["name"] for c in cands} | {pl.get("name", "")}
-                nearby = [by_id[m["id"]] for m in matches if m["id"] in by_id]
+                nearby = []
+                for m in matches:
+                    if m["id"] not in by_id:
+                        continue
+                    ov = dict(_views_of(by_id[m["id"]]))
+                    nearby.append(ov.get(m.get("match_view"), by_id[m["id"]]))
                 suggestions = build_suggestions(
                     pl, by_id[top["id"]], product.key, taken,
                     name_collision=flagged,

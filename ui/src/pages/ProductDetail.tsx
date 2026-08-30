@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
-import { ConfirmButton, OverlapPairs, ToolInfo } from '../components'
+import { ConfirmButton, OverlapPairs, ToolInfo, viewAud } from '../components'
 
 export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
@@ -141,7 +141,7 @@ function Duplicates({ productKey }: { productKey: string }) {
       </div>
       <OverlapPairs report={report} showCross={false}
         explain={p => api.explainPair(productKey, p.a.id, p.b.id,
-          p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />
+          viewAud(p.a.view), viewAud(p.b.view))} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, downloadExport, errorText, Product, User } from '../api'
-import { OverlapPairs } from '../components'
+import { OverlapPairs, viewAud } from '../components'
 import { validateProductKey } from '../validators'
 import { toast } from '../App'
 import { ConfirmButton } from '../components'
@@ -105,7 +105,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
             : <OverlapPairs report={overlaps}
                 explain={p => api.explainPair(p.a.product_key, p.a.id, p.b.id,
-                  p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />}
+                  viewAud(p.a.view), viewAud(p.b.view))} />}
         </div>
       )}
     </>
