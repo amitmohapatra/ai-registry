@@ -73,8 +73,12 @@ export function PairBreakdown({ ex }: { ex: any }) {
 export function ToolInfo({ payload, version, audiences }:
   { payload: any; version?: number; audiences?: string[] }) {
   const [open, setOpen] = useState(false)
+  const [view, setView] = useState<'external' | 'internal'>('external')
+  const [copied, setCopied] = useState(false)
   const props: [string, any][] = Object.entries(payload?.input_schema?.properties ?? {})
   const req = new Set<string>(payload?.input_schema?.required ?? [])
+  const internalDesc = payload?.audiences?.internal?.overrides?.description
+  const shownDesc = view === 'internal' ? (internalDesc ?? payload?.description) : payload?.description
   return (
     <span className="info-wrap" onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}>
@@ -85,9 +89,17 @@ export function ToolInfo({ payload, version, audiences }:
           <div className="popcard-head">
             <b className="score">{payload?.name}</b>
             {version != null && <span className="pill user">v{version}</span>}
+            <button className="icon-act" style={{ marginLeft: 'auto' }}
+              title="Copy the full tool definition (JSON, as published)"
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+                setCopied(true); window.setTimeout(() => setCopied(false), 1500)
+              }}>{copied ? '✓' : '⧉'}</button>
           </div>
           {payload?.title && <div className="popcard-title">{payload.title}</div>}
-          <p className="popcard-desc">{payload?.description}</p>
+          <p className="popcard-desc">{shownDesc}
+            {view === 'internal' && !internalDesc &&
+              <span className="muted"> (inherits external)</span>}</p>
           {props.length > 0 && (
             <table className="popcard-table">
               <thead><tr><th>Param</th><th>Type</th><th>Req</th><th>Description</th></tr></thead>
@@ -102,8 +114,13 @@ export function ToolInfo({ payload, version, audiences }:
             </table>
           )}
           {audiences?.length ? (
-            <div style={{ marginTop: 8 }}>{audiences.map(a =>
-              <span key={a} className="pill aud" style={{ marginRight: 4 }}>{a}</span>)}</div>
+            <div style={{ marginTop: 8 }} title="Switch which audience's description is shown above">
+              {audiences.map(a => (
+                <button key={a} className={`pill-btn ${view === a ? 'on' : ''}`}
+                  onClick={() => setView(a as any)}>
+                  {a}{a === 'internal' && internalDesc ? ' •' : ''}</button>
+              ))}
+            </div>
           ) : null}
         </div>
       )}
