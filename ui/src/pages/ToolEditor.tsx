@@ -47,10 +47,11 @@ export default function ToolEditor() {
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
     api.audiences(productKey).then(a => setAudiences(a.map(x => x.key)))
     if (entityId) {
-      sessionStorage.removeItem(draftKey)          // leaving without publishing discards edits:
-      api.entity(productKey, entityId).then(e => { // coming back always shows the published tool
+      api.entity(productKey, entityId).then(e => {
         setSavedPayload(e.payload); setVersion(e.version)
-        setPayload(e.payload)
+        // a stored draft survives navigation until published or discarded
+        const stored = localStorage.getItem(draftKey)
+        setPayload(stored ? JSON.parse(stored) : e.payload)
         api.duplicates(productKey, 'all').then(r => setSavedReport(
           { ...r, pairs: r.pairs
               .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
@@ -59,17 +60,24 @@ export default function ToolEditor() {
       })
       api.versions(productKey, entityId).then(setVersions)
     } else {
-      const stored = sessionStorage.getItem(draftKey)
+      const stored = localStorage.getItem(draftKey)
       if (stored) setPayload(JSON.parse(stored))
     }
   }, [productKey, entityId])
 
-  // persist a NEW tool's draft across page changes (existing tools always
-  // reload their published state — unpublished edits are intentionally dropped)
+  // the draft lives in localStorage until published or explicitly discarded;
+  // when the draft equals the published payload there is no draft to keep
   useEffect(() => {
-    if (isNew && (payload.name || payload.description))
-      sessionStorage.setItem(draftKey, JSON.stringify(payload))
-  }, [payload, draftKey, isNew])
+    if (isNew) {
+      if (payload.name || payload.description)
+        localStorage.setItem(draftKey, JSON.stringify(payload))
+      return
+    }
+    if (!savedPayload) return
+    if (JSON.stringify(payload) !== JSON.stringify(savedPayload))
+      localStorage.setItem(draftKey, JSON.stringify(payload))
+    else localStorage.removeItem(draftKey)
+  }, [payload, draftKey, savedPayload, isNew])
 
   // live preview — the same validate+resolve pipeline as Save
   useEffect(() => {
@@ -145,11 +153,11 @@ export default function ToolEditor() {
     try {
       if (isNew) {
         const e = await api.createEntity(productKey, { type: 'tool', payload })
-        sessionStorage.removeItem(draftKey)
+        localStorage.removeItem(draftKey)
         nav(`/p/${productKey}/tools/${e.id}`)
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
-        sessionStorage.removeItem(draftKey); setSavedPayload(payload)
+        localStorage.removeItem(draftKey); setSavedPayload(payload)
         api.duplicates(productKey, 'all').then(r => setSavedReport(
           { ...r, pairs: r.pairs
               .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
@@ -171,10 +179,13 @@ export default function ToolEditor() {
         <div><h1>{isNew ? 'New tool' : payload.name} {!isNew && <span className="muted">v{version}</span>}</h1>
           <span className="muted">Edits publish to every running MCP server the moment you save.</span></div>
         <div className="row">
-          {!isNew && savedPayload && JSON.stringify(payload) !== JSON.stringify(savedPayload) && (
-            <span className="pill off" title="Your edits (including applied fixes) are live in this draft but not published — Save & publish to make them real; leaving discards them">
-              unsaved changes</span>
-          )}
+          {!isNew && savedPayload && JSON.stringify(payload) !== JSON.stringify(savedPayload) && (<>
+            <span className="pill off" title="Your edits (including applied fixes) are stored as a draft — they survive navigation but are not served until you Save & publish">
+              draft — not published</span>
+            <button className="small" title="Throw away the draft and go back to the published version — warnings and suggestions will reappear"
+              onClick={() => { localStorage.removeItem(draftKey); setPayload(savedPayload)
+                toast('Draft discarded — showing the published version') }}>Discard draft</button>
+          </>)}
           <button onClick={() => nav(`/p/${productKey}`)}>Back</button>
           {canEdit
             ? <button className="primary" onClick={save}
