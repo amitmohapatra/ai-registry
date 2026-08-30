@@ -372,12 +372,17 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
     set({ description: desc })
     return null
   }
-  const [wasFlagged, setWasFlagged] = useState(false)
+  // remember the collision we were flagged at, so the success banner can
+  // show the actual reduction (70% -> 25%), not just the new number
+  const [lastFlagged, setLastFlagged] = useState<any>(null)
   const [showResDesc, setShowResDesc] = useState<number | null>(null)
   const th = matches?.threshold ?? 0.5
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
-  useEffect(() => { if (flagged) setWasFlagged(true) }, [flagged])
+  const wasFlagged = !!lastFlagged
+  useEffect(() => {
+    if (flagged) setLastFlagged({ score: top.score, name: top.name, product_key: top.product_key })
+  }, [flagged, top?.score, top?.name])
   if (aud && !flagged && !wasFlagged) return null   // audience tabs: show problems AND the moment they clear
   return (
     <>
@@ -451,8 +456,12 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
       )}
       {!flagged && wasFlagged && top && (
         <div className="ok-banner" style={{ marginTop: 6 }}>
-          ✓ Looks distinct now — closest match is {top.product_key}/{top.name} at{' '}
-          {Math.round(top.score * 100)}%, below your {Math.round(th * 100)}% threshold.
+          ✓ Looks distinct now — <s className="muted">{Math.round(lastFlagged.score * 100)}%</s>{' '}
+          → <b>{Math.round(top.score * 100)}%</b>
+          {lastFlagged.name === top.name
+            ? <> with <b className="score">{top.product_key}/{top.name}</b></>
+            : <> (was <b className="score">{lastFlagged.product_key}/{lastFlagged.name}</b>; closest is now{' '}
+                <b className="score">{top.product_key}/{top.name}</b>)</>}, below your {Math.round(th * 100)}% threshold.
         </div>
       )}
     </>
