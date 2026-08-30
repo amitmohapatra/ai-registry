@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
 import { OverlapPairs } from '../components'
 
-type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
   suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
@@ -129,11 +128,6 @@ export default function ToolEditor() {
     return () => window.clearTimeout(id)
   }, [matches, productKey])
 
-  const params: Param[] = useMemo(() => {
-    const props = payload.input_schema?.properties ?? {}
-    const req = new Set(payload.input_schema?.required ?? [])
-    return Object.entries(props).map(([name, schema]) => ({ name, schema, required: req.has(name) }))
-  }, [payload])
 
   const set = (patch: any) => setPayload((p: any) => ({ ...p, ...patch }))
   const setSchema = (fn: (s: any) => any) => setPayload((p: any) => ({ ...p, input_schema: fn(structuredClone(p.input_schema)) }))
@@ -162,8 +156,6 @@ export default function ToolEditor() {
       else setErrors([{ path: '', code: 'error', message: String((ex as any)?.detail ?? 'Save failed') }])
     }
   }
-
-  const errFor = (needle: string) => errors.filter(e => e.path.includes(needle))
 
   return (
     <>
@@ -213,9 +205,9 @@ export default function ToolEditor() {
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
       ) : tab !== 'similar' && tab !== 'history' ? (
-        <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
-          basePayload={payload} setOverlay={setOverlay} errFor={errFor}
-          preview={preview} errors={errors} matches={matches} checking={checking} set={set} />
+        <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
+          basePayload={payload} setOverlay={setOverlay}
+          matches={matches} checking={checking} set={set} />
       ) : null}
 
       {tab === 'similar' && !isNew && (
@@ -425,61 +417,20 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 }
 
 /* ---------- audience form: same experience as Base ---------- */
-const TYPE_DEFAULTS: Record<string, any> = {
-  string: { type: 'string' }, integer: { type: 'integer' }, number: { type: 'number' },
-  boolean: { type: 'boolean' },
-  array: { type: 'array', items: { type: 'string' } },
-  object: { type: 'object', properties: {} },
-}
-const ALL_TYPES = Object.keys(TYPE_DEFAULTS)
 
-function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, preview, errors, matches, checking, set }: any) {
-  const [showPreview, setShowPreview] = useState(false)
+function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set }: any) {
   const ov = overlay.overrides ?? {}
-  const pOps = ov.parameters ?? {}
   const enabled = overlay.enabled !== false
-  const [ovJsonMode, setOvJsonMode] = useState(false)
-  const [ovJsonText, setOvJsonText] = useState('')
-  const [ovJsonErr, setOvJsonErr] = useState('')
-  const [add, setAdd] = useState({ name: '', type: 'string', description: '', default: '' })
 
   const setOv = (patch: any) => setOverlay(aud, (o: Overlay) => ({ ...o, overrides: { ...(o.overrides ?? {}), ...patch } }))
-  const setParamOp = (op: string, name: string, value: any | null) => setOverlay(aud, (o: Overlay) => {
-    const ovr = { ...(o.overrides ?? {}) }; const po = { ...(ovr.parameters ?? {}) }
-    const bucket = { ...(po[op] ?? {}) }
-    if (value === null) delete bucket[name]; else bucket[name] = value
-    if (Object.keys(bucket).length) po[op] = bucket; else delete po[op]
-    if (Object.keys(po).length) ovr.parameters = po; else delete ovr.parameters
-    return { ...o, overrides: ovr }
-  })
-  const opOf = (name: string) => pOps.hide?.[name] ? 'hide' : pOps.modify?.[name] ? 'modify' : 'inherit'
 
   return (
     <div className="card">
       <div className="toolbar">
         <h2 style={{ margin: 0 }}>Overrides for <span className="pill aud">{aud}</span></h2>
         {!enabled && <span className="pill off">hidden — enable in Manage → Audience access</span>}
-        <button className="small" onClick={() => {
-          if (!ovJsonMode) setOvJsonText(JSON.stringify(overlay, null, 2))
-          setOvJsonErr(''); setOvJsonMode(!ovJsonMode)
-        }}>{ovJsonMode ? 'Back to form' : 'Paste / edit JSON'}</button>
-        <button className="small" onClick={() => setShowPreview(v => !v)}>
-          {showPreview ? 'Hide preview' : 'Live preview'}</button>
       </div>
-      {showPreview && <PreviewPanel preview={preview} tab={aud} errors={errors} />}
-      {ovJsonMode ? (
-        <>
-          <textarea style={{ fontFamily: 'ui-monospace, monospace', minHeight: 240 }}
-            value={ovJsonText} onChange={e => {
-              setOvJsonText(e.target.value)
-              try { const o = JSON.parse(e.target.value); setOvJsonErr(''); setOverlay(aud, () => o) }
-              catch { setOvJsonErr('Invalid JSON — the last valid overlay is kept') }
-            }} />
-          {ovJsonErr && <div className="err">{ovJsonErr}</div>}
-          <p className="muted">Overlay JSON: {'{'}"overrides": {'{'}"description", "parameters":
-            {'{'}"add" | "modify" | "hide"{'}'}{'}'}{'}'} — modify accepts any partial JSON Schema.</p>
-        </>
-      ) : enabled && (<>
+      {enabled && (<>
         <label>Description for {aud} <span className="muted" style={{ fontWeight: 400 }}>
           {('description' in ov) ? '(overridden)' : '(inheriting base — start typing to override)'}</span></label>
         <textarea value={ov.description ?? basePayload.description ?? ''}
@@ -492,77 +443,8 @@ function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, p
             })}>Reset to base description</button>
         )}
         <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} aud={aud} />
-
-        <label style={{ marginTop: 14 }}>Parameters for {aud}</label>
-        <table>
-          <thead><tr><th>Name</th><th>Treatment</th><th>Details</th></tr></thead>
-          <tbody>
-            {params.map((p: Param) => {
-              const op = opOf(p.name)
-              return (
-                <tr key={p.name}>
-                  <td className="score">{p.name}{p.required ? ' *' : ''}</td>
-                  <td>
-                    <select value={op} onChange={e => {
-                      setParamOp('hide', p.name, null); setParamOp('modify', p.name, null)
-                      if (e.target.value === 'hide') setParamOp('hide', p.name, { pin: p.schema.type === 'integer' || p.schema.type === 'number' ? 0 : '' })
-                      if (e.target.value === 'modify') setParamOp('modify', p.name, { description: p.schema.description ?? '' })
-                    }}>
-                      <option value="inherit">inherit</option>
-                      <option value="modify">customize</option>
-                      <option value="hide">hide</option>
-                    </select>
-                  </td>
-                  <td style={{ width: '55%' }}>
-                    {op === 'modify' && <input placeholder={`description for ${aud}`}
-                      value={pOps.modify[p.name].description ?? ''}
-                      onChange={e => setParamOp('modify', p.name, { ...pOps.modify[p.name], description: e.target.value })} />}
-                    {op === 'hide' && <div className="row" title={`${aud} callers never see this parameter; the tool always receives this fixed value — callers cannot override it`}>
-                      <span className="param-op">value sent to the tool →</span>
-                      <input style={{ flex: 1 }} value={String(pOps.hide[p.name].pin ?? '')}
-                        onChange={e => {
-                          const raw = e.target.value
-                          const v = p.schema.type === 'integer' ? parseInt(raw || '0')
-                            : p.schema.type === 'number' ? parseFloat(raw || '0')
-                            : p.schema.type === 'boolean' ? raw === 'true' : raw
-                          setParamOp('hide', p.name, { pin: Number.isNaN(v as any) ? raw : v })
-                        }} />
-                    </div>}
-                    {errFor(`${aud}/parameters`).filter((e: ValidationErr) => e.path.includes(p.name))
-                      .map((e: ValidationErr, i: number) => <div key={i} className="err">{e.message}</div>)}
-                  </td>
-                </tr>
-              )
-            })}
-            {Object.entries(pOps.add ?? {}).map(([name, schema]: [string, any]) => (
-              <tr key={name}>
-                <td className="score">{name} <span className="param-op">only {aud}</span></td>
-                <td className="muted">{schema.type}</td>
-                <td><button className="icon-btn" title="Remove" onClick={() => setParamOp('add', name, null)}>✕</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="row" style={{ marginTop: 10 }}>
-          <input style={{ flex: 1 }} placeholder={`new parameter (visible to ${aud} only)`} value={add.name}
-            onChange={e => setAdd({ ...add, name: e.target.value })} />
-          <select style={{ width: 100 }} value={add.type} onChange={e => setAdd({ ...add, type: e.target.value })}>
-            {ALL_TYPES.map(t => <option key={t}>{t}</option>)}
-          </select>
-          <input style={{ flex: 1 }} placeholder="description" value={add.description}
-            onChange={e => setAdd({ ...add, description: e.target.value })} />
-          <input style={{ width: 110 }} placeholder="default" value={add.default}
-            onChange={e => setAdd({ ...add, default: e.target.value })} />
-          <button className="small" disabled={!add.name} onClick={() => {
-            const d = add.type === 'integer' ? parseInt(add.default || '0')
-              : add.type === 'number' ? parseFloat(add.default || '0')
-              : add.type === 'boolean' ? add.default === 'true'
-              : add.type === 'array' ? [] : add.type === 'object' ? {} : add.default
-            setParamOp('add', add.name, { ...TYPE_DEFAULTS[add.type], default: d,
-              ...(add.description ? { description: add.description } : {}) })
-            setAdd({ name: '', type: 'string', description: '', default: '' })
-          }}>+ Add</button>
-        </div>
+        <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the Base tab —
+          audiences differ only in wording, never in schema.</p>
       </>)}
     </div>
   )
