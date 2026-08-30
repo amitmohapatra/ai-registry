@@ -366,3 +366,5 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
 
 .field-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
 .field-err .path { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 11px; }
+
+label .req { color: var(--danger); font-weight: 700; }

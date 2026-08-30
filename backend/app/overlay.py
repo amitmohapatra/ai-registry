@@ -54,7 +54,10 @@ TOOL_BASE_SCHEMA = {
     "type": "object",
     "required": ["name", "description"],
     "properties": {
-        "name": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"},
+        # the MCP spec leaves names unconstrained, but every real client (Claude,
+        # OpenAI function calling) enforces this exact rule — so we do too, and
+        # nothing stricter
+        "name": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,64}$"},
         "title": {"type": "string"},
         "description": {"type": "string", "minLength": 1},
         "input_schema": {"type": "object"},

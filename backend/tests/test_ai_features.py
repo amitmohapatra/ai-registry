@@ -137,7 +137,7 @@ async def test_suggestions_on_flagged_draft(client):
     import re
     existing = {"get_invoice", "get_invoice_pdf"}
     for item in s["names"]:
-        assert re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$", item["name"])
+        assert re.match(r"^[a-zA-Z0-9_-]{1,64}$", item["name"])
         assert item["name"].lower() not in existing
         assert len(s["names"]) <= 3 and len(s["titles"]) <= 3 and len(s["descriptions"]) <= 3
     # a clearly novel draft gets NO suggestions block

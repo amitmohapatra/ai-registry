@@ -562,17 +562,17 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
     <div className="card">
       {!isNew && <SectionDraftBanner section="base" draft={payload} published={savedPayload}
         discard={discardSection} />}
-      <label>Tool name *</label>
+      <label>Tool name <span className="req">*</span></label>
       <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
-      {payload.name && !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(payload.name) ? (
-        <div className="field-err">Use letters, numbers, _ or – only — no spaces; start with a letter.</div>
+      {payload.name && !/^[a-zA-Z0-9_-]{1,64}$/.test(payload.name) ? (
+        <div className="field-err">Letters, numbers, _ or – only, max 64 characters — the rule MCP clients enforce.</div>
       ) : errFor('name').map((e: ValidationErr, i: number) =>
         <div key={i} className="field-err">{e.message}</div>)}
       <label>Title</label>
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       {errFor('title').map((e: ValidationErr, i: number) =>
         <div key={i} className="field-err">{e.message}</div>)}
-      <label>Description * (what the model reads — the most important field)</label>
+      <label>Description <span className="req">*</span></label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
       {errFor('description').map((e: ValidationErr, i: number) =>
         <div key={i} className="field-err">{e.message}</div>)}

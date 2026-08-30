@@ -10,7 +10,7 @@ from .similarity import (NoopReranker, blend_breakdown, desc_text_of, is_action_
                          name_similarity, reranker)
 from .tuning import DEFAULTS as _TUNE
 
-_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$")
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")   # the MCP-client rule, nothing stricter
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP = {"a", "an", "the", "by", "for", "of", "to", "in", "on", "with", "and", "or",
          "its", "is", "it", "this", "that", "get", "set", "from", "into", "onto",
