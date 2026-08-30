@@ -403,3 +403,43 @@ label .req { color: var(--danger); font-weight: 700; }
 .handoff { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
   margin-bottom: 6px; background: #fef7e0; border: 1px solid #f0d58c;
   border-radius: 10px; font-size: 13px; }
+
+/* ---- People console ---- */
+.people-table { table-layout: fixed; width: 100%; }
+.people-table td { vertical-align: middle; }
+.person { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; color: #fff; font-size: 12.5px;
+  font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+.person-meta { min-width: 0; }
+.person-meta b { display: block; font-size: 13.5px; }
+.person-meta span { display: block; font-size: 12.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-tonal);
+  color: var(--accent-tonal-text); border-radius: 999px; padding: 3px 10px; font-size: 12px;
+  font-weight: 500; white-space: nowrap; }
+.chip .role { font-weight: 400; opacity: .75; }
+.chip .x { cursor: pointer; opacity: 0; font-weight: 600; transition: opacity .12s; }
+.chip:hover .x { opacity: .7; }
+.chip .x:hover { opacity: 1; }
+.chip.ghost { background: transparent; border: 1px dashed var(--border-strong);
+  color: var(--muted); cursor: pointer; }
+.chip.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.pop-wrap { position: relative; display: inline-block; }
+.pop-backdrop { position: fixed; inset: 0; z-index: 55; }
+.pop-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; background: #fff;
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(60,64,67,.18); padding: 10px; }
+.pop-panel.right { left: auto; right: 0; }
+.grant-row { display: flex; gap: 8px; align-items: center; }
+.grant-row select { width: 150px; }
+.kebab { border: none; background: transparent; box-shadow: none; color: var(--muted);
+  font-size: 17px; line-height: 1; padding: 6px 10px; border-radius: 50%; }
+.kebab:hover { background: #f1f3f4; box-shadow: none; }
+.menu { min-width: 220px; padding: 6px; }
+.menu button { display: block; width: 100%; text-align: left; border: none; background: transparent;
+  box-shadow: none; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: var(--text); }
+.menu button:hover { background: #f6f9fe; }
+.menu button.danger { color: var(--danger); }
+.menu button.danger:hover { background: var(--danger-bg); }
+.grant-row button, .grant-row select { white-space: nowrap; flex: none; }

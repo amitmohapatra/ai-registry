@@ -63,7 +63,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
                 onClick={() => setManageTab(k)}>{label}</button>
             ))}
         </div>
-        {manageTab === 'members' && <Members productKey={productKey} canEdit={canEdit} />}
+        {manageTab === 'members' && <Members productKey={productKey} canEdit={canEdit} isSuper={product.role === 'super_admin'} />}
         {manageTab === 'audiences' && <>
           <Audiences productKey={productKey} canEdit={canEdit}
             onChanged={() => setAudBump(b => b + 1)} />
@@ -180,7 +180,7 @@ function Duplicates({ productKey }: { productKey: string }) {
   )
 }
 
-function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean }) {
+function Members({ productKey, canEdit, isSuper }: { productKey: string; canEdit: boolean; isSuper?: boolean }) {
   const [members, setMembers] = useState<Member[]>([])
   const [email, setEmail] = useState(''); const [role, setRole] = useState('user'); const [err, setErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -204,6 +204,7 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
     <div className="card">
       <div className="toolbar">
         <h2>Members</h2>
+        {isSuper && <Link to="/users" className="muted" style={{ fontSize: 13 }}>Manage all people →</Link>}
         {canEdit && <button className="primary small" onClick={() => { setShowAdd(v => !v); setErr('') }}>
           {showAdd ? 'Cancel' : '+ Add member'}</button>}
       </div>
