@@ -159,6 +159,13 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
   const [members, setMembers] = useState<Member[]>([])
   const [email, setEmail] = useState(''); const [role, setRole] = useState('user'); const [err, setErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [directory, setDirectory] = useState<{ email: string; name: string }[]>([])
+  const [pickOpen, setPickOpen] = useState(false)
+  useEffect(() => { if (showAdd) api.directory().then(setDirectory).catch(() => {}) }, [showAdd])
+  const candidates = directory.filter(u =>
+    !members.some(m => m.email === u.email) &&
+    (!email || u.email.toLowerCase().includes(email.toLowerCase())
+      || u.name.toLowerCase().includes(email.toLowerCase())))
   const load = () => api.members(productKey).then(setMembers)
   useEffect(() => { load() }, [productKey])
   const add = async (e: React.FormEvent) => {
@@ -175,7 +182,27 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
       </div>
       {showAdd && canEdit && (
         <form className="onboard-row" onSubmit={add}>
-          <input autoFocus style={{ flex: 2 }} placeholder="person@company.com" value={email} onChange={e => setEmail(e.target.value)} />
+          <div style={{ flex: 2, position: 'relative' }}>
+            <input autoFocus placeholder="Search users by email or name…" value={email}
+              onChange={e => { setEmail(e.target.value); setPickOpen(true) }}
+              onFocus={() => setPickOpen(true)}
+              onBlur={() => window.setTimeout(() => setPickOpen(false), 150)} />
+            {pickOpen && candidates.length > 0 && (
+              <div className="combo-list">
+                {candidates.slice(0, 8).map(u => (
+                  <div key={u.email} className="combo-item"
+                    onMouseDown={() => { setEmail(u.email); setPickOpen(false) }}>
+                    <b className="score">{u.email}</b>
+                    <span className="muted" style={{ marginLeft: 8 }}>{u.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pickOpen && candidates.length === 0 && email && (
+              <div className="combo-list"><div className="combo-item muted">
+                No matching account — create it on the People page first.</div></div>
+            )}
+          </div>
           <select style={{ flex: 1 }} value={role} onChange={e => setRole(e.target.value)}>
             <option value="user">user (read-only)</option>
             <option value="admin">admin (can edit tools)</option>

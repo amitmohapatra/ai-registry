@@ -59,6 +59,7 @@ export const api = {
   login: (email: string, password: string) => req<{ access_token: string; user: User }>('POST', '/v1/auth/login', { email, password }),
   me: () => req<User>('GET', '/v1/auth/me'),
   users: () => req<User[]>('GET', '/v1/auth/users'),
+  directory: () => req<{ email: string; name: string }[]>('GET', '/v1/auth/users/directory'),
   createUser: (u: any) => req<User>('POST', '/v1/auth/users', u),
   products: () => req<Product[]>('GET', '/v1/products'),
   product: (key: string) => req<Product>('GET', `/v1/products/${key}`),

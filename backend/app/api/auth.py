@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,4 +41,18 @@ async def create_user(body: UserIn, db: AsyncSession = Depends(get_session),
 
 @router.get("/users", response_model=list[UserOut])
 async def list_users(db: AsyncSession = Depends(get_session), _: User = Depends(require_super)):
+    return (await db.execute(select(User).order_by(User.email))).scalars().all()
+
+
+class DirectoryOut(BaseModel):
+    email: str
+    name: str
+    model_config = {"from_attributes": True}
+
+
+@router.get("/users/directory", response_model=list[DirectoryOut])
+async def user_directory(db: AsyncSession = Depends(get_session),
+                         _: User = Depends(current_user)):
+    """Email + name only — lets product admins PICK members from existing
+    accounts instead of typing emails blind. No roles or ids exposed."""
     return (await db.execute(select(User).order_by(User.email))).scalars().all()

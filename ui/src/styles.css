@@ -372,3 +372,10 @@ label .req { color: var(--danger); font-weight: 700; }
 /* second-level tabs inside Manage */
 .tabs.sub { margin: -6px 0 14px; }
 .tabs.sub button { font-size: 12.5px; padding: 7px 12px; }
+
+/* searchable member picker */
+.combo-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(60,64,67,.18); max-height: 240px; overflow: auto; }
+.combo-item { padding: 8px 12px; font-size: 13px; cursor: pointer; }
+.combo-item:hover { background: #f6f9fe; }
