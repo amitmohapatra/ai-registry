@@ -159,7 +159,7 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
     if (resolve) {
       const out = await resolve(p).catch(() => 'error') ?? 'error'
       setFix(out)
-      if (out && out.side === 'b')       // fix belongs to another product: can
+      if (out && out.side)               // whichever product owns the fix: can
         api.product(out.tool.product_key) // THIS viewer act on it?
           .then((pr: any) => setOtherRole(pr.role)).catch(() => setOtherRole('none'))
     }
@@ -202,57 +202,39 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
             {resolve && fix && fix !== 'idle' && fix !== 'loading' && fix !== 'error' && (
               fix.side ? (
                 <div style={{ marginTop: 8 }}>
-                  {fix.tool.product_key === productKey ? (
-                    <div className="handoff">
-                      <span className="dot green" style={{ marginTop: 2 }} />
-                      <span style={{ flex: 1 }}>
-                        <b>You can fix this here</b> — the verified fix is on this
-                        product's <b className="score">{fix.tool.name}</b>.
-                      </span>
-                      {(otherRole === 'admin' || otherRole === 'super_admin') ? (
-                        <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
-                          <button className="primary small">Open {fix.tool.name} →</button>
-                        </RouterLink>
-                      ) : (
-                        <button className="small" title="You don't have edit access — copy a report (with the verified fix) for this product's admin"
-                          onClick={() => { navigator.clipboard.writeText(
-                            `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
-                            `${fix.tool.name}'s wording collides with another product's tool. ` +
-                            `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
-                            `description: "${fix.packages[0].description}" ` +
-                            `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
-                            `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`) }}>
-                          ⧉ Copy handoff report</button>
-                      )}
-                    </div>
-                  ) : fix.side === 'b' || (productKey && fix.tool.product_key !== productKey) ? (
-                    <div className="handoff">
-                      <span className="dot red" style={{ marginTop: 2 }} />
-                      <span style={{ flex: 1 }}>
-                        <b>{productKey ? 'This fix belongs to another product:' : 'The verified fix is on:'}</b>{' '}
-                        <span className="pill aud">{fix.tool.product_key}</span> — apply it on{' '}
-                        <b className="score">{fix.tool.name}</b>.
-                      </span>
-                      {(otherRole === 'admin' || otherRole === 'super_admin') ? (
-                        <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
-                          <button className="primary small">Open {fix.tool.name} →</button>
-                        </RouterLink>
-                      ) : (
-                        <button className="small" title="You don't have edit access there — copy a report (with the verified fix) for that product's admin"
-                          onClick={() => { navigator.clipboard.writeText(
-                            `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
-                            `${fix.tool.name}'s wording collides with another product's tool. ` +
-                            `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
-                            `description: "${fix.packages[0].description}" ` +
-                            `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
-                            `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`) }}>
-                          ⧉ Copy handoff report</button>
-                      )}
-                    </div>
-                  ) : (
-                    <b style={{ fontSize: 12.5 }}>Verified fix for{' '}
-                      <span className="score">{fix.tool.product_key}/{fix.tool.name}</span></b>
-                  )}
+                  {(() => {
+                    const local = fix.tool.product_key === productKey
+                    return (
+                      <div className="handoff">
+                        <span className={'dot ' + (local ? 'green' : 'red')} style={{ marginTop: 2 }} />
+                        <span style={{ flex: 1 }}>
+                          {local ? (
+                            <><b>You can fix this here</b> — the verified fix is on this
+                              product's <b className="score">{fix.tool.name}</b>.</>
+                          ) : (
+                            <><b>{productKey ? 'This fix belongs to another product:' : 'The verified fix is on:'}</b>{' '}
+                              <span className="pill aud">{fix.tool.product_key}</span> — apply it on{' '}
+                              <b className="score">{fix.tool.name}</b>.</>
+                          )}
+                        </span>
+                        {(otherRole === 'admin' || otherRole === 'super_admin') ? (
+                          <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
+                            <button className="primary small">Open {fix.tool.name} →</button>
+                          </RouterLink>
+                        ) : (
+                          <button className="small" title="You don't have edit access there — copy a report (with the verified fix) for that product's admin"
+                            onClick={() => { navigator.clipboard.writeText(
+                              `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
+                              `${fix.tool.name}'s wording collides with another product's tool. ` +
+                              `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
+                              `description: "${fix.packages[0].description}" ` +
+                              `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
+                              `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`) }}>
+                            ⧉ Copy handoff report</button>
+                        )}
+                      </div>
+                    )
+                  })()}
                   {fix.packages.slice(0, 2).map((pk: any, i: number) => (
                     <div key={i}>
                       <div className="pkg-row" style={{ padding: '6px 0' }}>
