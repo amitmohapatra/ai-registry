@@ -174,6 +174,17 @@ export default function ToolEditor() {
     toast(`${section === 'base' ? 'external' : section} draft discarded — showing the published version`)
   }
 
+  // the durable "before": the published collision for the current view —
+  // survives tab switches because it is derived, not remembered in state
+  const publishedPrevFor = (viewTab: string) => {
+    const th0 = savedReport?.threshold ?? 0.5
+    const mine = (savedReport?.pairs ?? []).filter((p: any) => viewTab === 'internal'
+      ? p.a.view === 'internal' : p.a.view !== 'internal')
+    const top0 = mine.reduce((m: any, p: any) => !m || p.score > m.score ? p : m, null)
+    return top0 && top0.score >= th0
+      ? { score: top0.score, name: top0.b.name, product_key: top0.b.product_key } : null
+  }
+
   const set = (patch: any) => setPayload((p: any) => ({ ...p, ...patch }))
   const setSchema = (fn: (s: any) => any) => setPayload((p: any) => ({ ...p, input_schema: fn(structuredClone(p.input_schema)) }))
   const setOverlay = (aud: string, fn: (o: Overlay) => Overlay) =>
@@ -262,7 +273,7 @@ export default function ToolEditor() {
       </div>
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
-          savedPayload={savedPayload} discardSection={discardSection}
+          savedPayload={savedPayload} discardSection={discardSection} prevTop={publishedPrevFor('base')}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
@@ -270,7 +281,7 @@ export default function ToolEditor() {
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
           basePayload={payload} setOverlay={setOverlay} setTab={setTab}
-          savedPayload={savedPayload} discardSection={discardSection}
+          savedPayload={savedPayload} discardSection={discardSection} prevTop={publishedPrevFor(tab)}
           matches={matches} checking={checking} set={set} />
       ) : null}
 
@@ -374,7 +385,7 @@ function SectionDraftBanner({ section, draft, published, discard }:
   )
 }
 
-function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty, aud }: any) {
+function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty, aud, prevTop }: any) {
   const drv = (matches as any)?.flagged_audience ?? null   // null = external/base text drives
   const here = aud ?? null
   const owns = drv === here
@@ -396,7 +407,6 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
   const th = matches?.threshold ?? 0.5
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
-  const wasFlagged = !!lastFlagged
   useEffect(() => {
     if (flagged) setLastFlagged({ score: top.score, name: top.name, product_key: top.product_key })
   }, [flagged, top?.score, top?.name])
@@ -408,13 +418,26 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           <span className="rescore" style={{ margin: 0 }}><span className="spin" /> checking similarity…</span>
         </p>
       )}
-      {!checking && !flagged && !wasFlagged && top && (
-        <p className="muted" style={{ margin: '6px 0 0' }}>
-          <span className="dot green" /> No conflicts — closest match is{' '}
-          <b className="score">{top.product_key}/{top.name}</b> at {Math.round(top.score * 100)}%
-          (threshold {Math.round(th * 100)}%).
-        </p>
-      )}
+      {!checking && !flagged && top && (() => {
+        const prev = lastFlagged ?? prevTop
+        return (
+          <p className="muted" style={{ margin: '6px 0 0' }}>
+            <span className="dot green" />
+            {prev && prev.score >= th ? (<>
+              Looks distinct now — <s>{Math.round(prev.score * 100)}%</s> →{' '}
+              <b>{Math.round(top.score * 100)}%</b>
+              {prev.name === top.name
+                ? <> with <b className="score">{top.product_key}/{top.name}</b></>
+                : <> (was <b className="score">{prev.product_key}/{prev.name}</b>; closest is now{' '}
+                    <b className="score">{top.product_key}/{top.name}</b>)</>}, below your{' '}
+              {Math.round(th * 100)}% threshold.
+            </>) : (<>
+              No conflicts — closest match is <b className="score">{top.product_key}/{top.name}</b>{' '}
+              at {Math.round(top.score * 100)}% (threshold {Math.round(th * 100)}%).
+            </>)}
+          </p>
+        )
+      })()}
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
@@ -483,22 +506,12 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           ) : null}
         </div>
       )}
-      {!checking && !flagged && wasFlagged && top && (
-        <div className="ok-banner" style={{ marginTop: 6 }}>
-          ✓ Looks distinct now — <s className="muted">{Math.round(lastFlagged.score * 100)}%</s>{' '}
-          → <b>{Math.round(top.score * 100)}%</b>
-          {lastFlagged.name === top.name
-            ? <> with <b className="score">{top.product_key}/{top.name}</b></>
-            : <> (was <b className="score">{lastFlagged.product_key}/{lastFlagged.name}</b>; closest is now{' '}
-                <b className="score">{top.product_key}/{top.name}</b>)</>}, below your {Math.round(th * 100)}% threshold.
-        </div>
-      )}
     </>
   )
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, savedPayload, discardSection }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, savedPayload, discardSection, prevTop }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
@@ -513,7 +526,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} />
+      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} prevTop={prevTop} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -576,7 +589,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set, savedPayload, discardSection }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set, savedPayload, discardSection, prevTop }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -603,7 +616,7 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, 
             })}>Reset to external description</button>
         )}
         {('description' in ov) ? (
-          <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
+          <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} prevTop={prevTop} />
         ) : (() => {
           const th = matches?.threshold ?? 0.5
           const top = matches?.matches?.[0]
