@@ -26,13 +26,12 @@ def _tokens(text: str) -> set:
 
 def desc_text_of(payload: dict) -> str:
     """Description semantics only — names/titles deliberately excluded, so the
-    displayed match % measures MEANING, not naming coincidences."""
-    parts = [payload.get("description", "")]
-    for ov in (payload.get("audiences") or {}).values():
-        d = (ov.get("overrides") or {}).get("description")
-        if d:
-            parts.append(d)
-    return " ".join(p for p in parts if p)
+    displayed match % measures MEANING, not naming coincidences. Audience
+    override text is NOT blended in: every audience view is scored as its own
+    explicit variant (editor preview and overlap reports both expand them), so
+    mixing override text into the base would double-count it and pollute the
+    base view's score with text the base audience never sees."""
+    return payload.get("description", "") or ""
 
 
 def name_similarity(a: str, b: str) -> float:

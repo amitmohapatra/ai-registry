@@ -12,8 +12,9 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   const [showOnboard, setShowOnboard] = useState(false)
   const [key, setKey] = useState(''); const [name, setName] = useState('')
   const [err, setErr] = useState('')
-  const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[] } | null>(null)
-  useEffect(() => { api.duplicatesAll().then(setOverlaps).catch(() => {}) }, [])
+  const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[]; audience_keys?: string[] } | null>(null)
+  const [audience, setAudience] = useState('all')
+  useEffect(() => { setOverlaps(null); api.duplicatesAll(audience).then(setOverlaps).catch(() => {}) }, [audience])
   const load = () => api.products().then(setProducts)
   useEffect(() => { load() }, [])
 
@@ -98,9 +99,17 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
                 ? <span className="dot red" /> : <span className="dot green" />)}
               Overlapping tools across all products
             </h2>
-            {overlaps && <span className="muted">
-              {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
-                : `flagging ≥ ${Math.round(overlaps.threshold * 100)}% — adjust in any product's Manage → Similarity`}</span>}
+            <div className="row">
+              {overlaps && <span className="muted">
+                {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
+                  : `flagging ≥ ${Math.round(overlaps.threshold * 100)}%`}</span>}
+              <select style={{ width: 170 }} value={audience} onChange={e => setAudience(e.target.value)}
+                title="Which audience's published text to compare">
+                <option value="all">All audiences</option>
+                {(overlaps?.audience_keys ?? []).map(a =>
+                  <option key={a} value={a}>{a} view</option>)}
+              </select>
+            </div>
           </div>
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
             : <OverlapPairs report={overlaps}

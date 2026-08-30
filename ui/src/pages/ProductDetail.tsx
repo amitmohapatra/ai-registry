@@ -123,8 +123,10 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
 
 function Duplicates({ productKey }: { productKey: string }) {
   const [scope, setScope] = useState('all')
-  const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
-  useEffect(() => { setReport(null); api.duplicates(productKey, scope).then(setReport) }, [productKey, scope])
+  const [audience, setAudience] = useState('all')
+  const [report, setReport] = useState<{ threshold: number; pairs: any[]; audience_keys?: string[] } | null>(null)
+  useEffect(() => { setReport(null); api.duplicates(productKey, scope, audience).then(setReport) },
+    [productKey, scope, audience])
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -132,9 +134,15 @@ function Duplicates({ productKey }: { productKey: string }) {
         <div className="row">
           {report && <span className="muted">flagging ≥ {Math.round(report.threshold * 100)}% — adjust in
             Manage → Similarity</span>}
-          <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
+          <select style={{ width: 200 }} value={scope} onChange={e => setScope(e.target.value)}>
             <option value="all">Involving this product</option>
             <option value="product">Within this product only</option>
+          </select>
+          <select style={{ width: 170 }} value={audience} onChange={e => setAudience(e.target.value)}
+            title="Which audience's published text to compare">
+            <option value="all">All audiences</option>
+            {(report?.audience_keys ?? []).map(a =>
+              <option key={a} value={a}>{a} view</option>)}
           </select>
         </div>
       </div>

@@ -224,21 +224,44 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
 
 async def _build_duplicates(db: AsyncSession, threshold: float,
                             within_product_id: str = "",
-                            involving_key: str = "") -> dict:
+                            involving_key: str = "",
+                            audience: str = "all") -> dict:
     """Shared report builder. within_product_id: both sides in that product.
-    involving_key: at least one side in that product. Neither: whole registry."""
+    involving_key: at least one side in that product. Neither: whole registry.
+    audience: 'all' scans base + every published override (worst drives,
+    labeled); a specific key scans exactly the view THAT audience gets."""
+    from sqlalchemy import distinct
     from .ai import product_threshold
     from .ai import _score_gate
+    from ..models import Audience
     cands = await _candidates(db, within_product_id)
     th = threshold or await product_threshold(db)
+    aud_q = select(distinct(Audience.key))
+    if within_product_id:
+        aud_q = aud_q.where(Audience.product_id == within_product_id)
+    audience_keys = sorted((await db.execute(aud_q)).scalars().all())
 
     # every PUBLISHED audience override is a real description served to models,
     # so each variant competes in the scan; the worst variant of a pair drives.
     # Variants get synthetic ids (id::audience); pairs collapse back afterwards.
     expanded, need_vecs = [], []
     for c in cands:
+        overlays = c["payload"].get("audiences") or {}
+        if audience != "all":
+            ov = overlays.get(audience) or {}
+            if ov.get("enabled") is False:
+                continue                           # tool hidden from this audience
+            o = ov.get("overrides") or {}
+            if o.get("description") or o.get("title"):
+                vp = {**c["payload"]}
+                vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
+                v = {**c, "payload": vp, "text": embed_text_of(vp), "vec": None}
+                expanded.append(v); need_vecs.append(v)
+            else:
+                expanded.append(c)                 # audience inherits the base view
+            continue
         expanded.append(c)
-        for aud, ov in (c["payload"].get("audiences") or {}).items():
+        for aud, ov in overlays.items():
             o = (ov or {}).get("overrides") or {}
             if (ov or {}).get("enabled") is False:
                 continue
@@ -283,19 +306,24 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
     if involving_key:
         pairs = [p for p in pairs
                  if involving_key in (p["a"]["product_key"], p["b"]["product_key"])]
-    return {"threshold": th, "pairs": pairs}
+    return {"threshold": th, "pairs": pairs, "audience": audience,
+            "audience_keys": audience_keys}
 
 
 @router.get("/reports/duplicates")
 async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = Depends(get_session),
                      scope: str = Query(default="all", pattern="^(product|all)$"),
+                     audience: str = Query(default="all", max_length=64),
                      threshold: float = Query(default=0.0)):
     """A product's view: its own overlaps only. scope=product: both sides here;
-    scope=all: pairs INVOLVING this product (never unrelated products' pairs)."""
+    scope=all: pairs INVOLVING this product (never unrelated products' pairs).
+    audience composes with scope: 'all' or a specific audience's view."""
     product, _, _ = ctx
     if scope == "product":
-        return await _build_duplicates(db, threshold, within_product_id=product.id)
-    return await _build_duplicates(db, threshold, involving_key=product.key)
+        return await _build_duplicates(db, threshold, within_product_id=product.id,
+                                       audience=audience)
+    return await _build_duplicates(db, threshold, involving_key=product.key,
+                                   audience=audience)
 
 
 registry_reports = APIRouter(prefix="/v1/reports", tags=["entities"])
@@ -304,6 +332,7 @@ registry_reports = APIRouter(prefix="/v1/reports", tags=["entities"])
 @registry_reports.get("/duplicates")
 async def duplicates_all(db: AsyncSession = Depends(get_session),
                          _: object = Depends(current_user),
+                         audience: str = Query(default="all", max_length=64),
                          threshold: float = Query(default=0.0)):
     """Registry-wide overlaps — surfaced on the Products page."""
-    return await _build_duplicates(db, threshold)
+    return await _build_duplicates(db, threshold, audience=audience)
