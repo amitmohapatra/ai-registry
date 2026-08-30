@@ -100,7 +100,35 @@ def validate_base(entity_type: str, payload: dict) -> List[dict]:
             jsonschema.Draft202012Validator.check_schema(input_schema)
         except jsonschema.SchemaError as e:
             errors.append(_err("input_schema", "invalid_json_schema", e.message))
+        else:
+            errors.extend(_check_required_refs(input_schema, "input_schema"))
     return errors
+
+
+def _check_required_refs(schema, path: str) -> List[dict]:
+    """Authoring sanity, recursively: wherever `required` sits next to
+    `properties`, every required name must actually be defined — a ghost
+    required field is legal JSON Schema but a broken tool contract (models
+    must send a parameter that has no definition). Exact paths reported."""
+    out: List[dict] = []
+    if isinstance(schema, dict):
+        props = schema.get("properties")
+        req = schema.get("required")
+        if isinstance(req, list) and isinstance(props, dict):
+            for name in req:
+                if isinstance(name, str) and name not in props:
+                    out.append(_err(f"{path}/required", "unknown_required",
+                                    f"'required' lists '{name}' but no such "
+                                    f"parameter is defined at {path}"))
+        for key in ("properties",):
+            for pname, sub in (schema.get(key) or {}).items():
+                out.extend(_check_required_refs(sub, f"{path}/{key}/{pname}"))
+        if isinstance(schema.get("items"), dict):
+            out.extend(_check_required_refs(schema["items"], f"{path}/items"))
+        if isinstance(schema.get("additionalProperties"), dict):
+            out.extend(_check_required_refs(schema["additionalProperties"],
+                                            f"{path}/additionalProperties"))
+    return out
 
 
 def validate_overlay_shape(audience: str, overlay: dict) -> List[dict]:
