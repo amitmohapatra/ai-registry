@@ -264,7 +264,10 @@ export default function ToolEditor() {
           title="The definition every caller gets — external is the base">external
           {baseDirty && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}</button>
         <button className={tab === 'internal' ? 'active' : ''} onClick={() => setTab('internal')}
-          title={audiences.includes('internal') ? undefined : 'Internal audience is not enabled for this product yet'}>
+          title={!audiences.includes('internal') ? 'Internal audience is not enabled for this product yet'
+            : payload.audiences?.internal && Object.keys(payload.audiences.internal).length
+              ? 'internal has its own wording on this tool (• = overridden)'
+              : 'internal inherits the external wording on this tool'}>
           internal{audiences.includes('internal') && payload.audiences?.internal && Object.keys(payload.audiences.internal).length ? ' •' : ''}
           {audiences.includes('internal') && audDirty('internal') && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}
         </button>
