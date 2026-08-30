@@ -250,7 +250,7 @@ export default function ToolEditor() {
       </div>
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
-          sectionDirty={baseDirty} discardSection={discardSection}
+          sectionDirty={baseDirty} discardSection={discardSection} savedPayload={savedPayload}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
@@ -258,7 +258,7 @@ export default function ToolEditor() {
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
           basePayload={payload} setOverlay={setOverlay}
-          sectionDirty={audDirty(tab)} discardSection={discardSection}
+          sectionDirty={audDirty(tab)} discardSection={discardSection} savedPayload={savedPayload}
           matches={matches} checking={checking} set={set} />
       ) : null}
 
@@ -310,15 +310,49 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
   )
 }
 
-function SectionDraftBanner({ dirty, section, discard }:
-  { dirty: boolean; section: string; discard: (s: string) => void }) {
-  if (!dirty) return null
+function SectionDraftBanner({ dirty, section, discard, draft, published }:
+  { dirty: boolean; section: string; discard: (s: string) => void
+    draft: any; published: any }) {
+  const [open, setOpen] = useState(false)
+  if (!dirty || !published) return null
+  const rows: [string, string, string][] = []
+  if (section === 'base') {
+    for (const k of ['name', 'title', 'description'])
+      if ((draft[k] ?? '') !== (published[k] ?? ''))
+        rows.push([k, String(published[k] ?? '—'), String(draft[k] ?? '—')])
+    if (JSON.stringify(draft.input_schema) !== JSON.stringify(published.input_schema))
+      rows.push(['parameters', 'published schema', 'edited schema'])
+    if (JSON.stringify(draft.annotations ?? null) !== JSON.stringify(published.annotations ?? null))
+      rows.push(['annotations', 'published hints', 'edited hints'])
+  } else {
+    const d = draft.audiences?.[section]?.overrides?.description
+    const p = published.audiences?.[section]?.overrides?.description
+    if ((d ?? '') !== (p ?? ''))
+      rows.push(['description', p ?? '(inheriting external)', d ?? '(inheriting external)'])
+    const de = draft.audiences?.[section]?.enabled !== false
+    const pe = published.audiences?.[section]?.enabled !== false
+    if (de !== pe) rows.push(['visibility', pe ? 'enabled' : 'hidden', de ? 'enabled' : 'hidden'])
+  }
   return (
-    <div className="draft-banner">
-      <span className="draft-mark">✎</span> This tab has unsaved draft changes — not published.
-      <button className="small" style={{ marginLeft: 8 }}
-        title="Restore only this tab to its published version"
-        onClick={() => discard(section)}>Discard this tab's draft</button>
+    <div className="draft-banner" style={{ display: 'block' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span className="draft-mark">✎</span> This tab has unsaved draft changes — not published.
+        <button className="small" style={{ marginLeft: 8 }}
+          onClick={() => setOpen(v => !v)}>{open ? 'Hide changes' : 'View changes'}</button>
+        <button className="small" style={{ marginLeft: 4 }}
+          title="Restore only this tab to its published version"
+          onClick={() => discard(section)}>Discard this tab's draft</button>
+      </div>
+      {open && (
+        <table className="resolve-table" style={{ marginTop: 8 }}><tbody>
+          {rows.map(([field, pub, dr]) => (
+            <tr key={field}><th>{field}</th>
+              <td className="cur" title={pub}>{pub}</td>
+              <td className="arr">→</td>
+              <td className="cur" style={{ color: '#7a4f01' }} title={dr}>{dr}</td></tr>
+          ))}
+        </tbody></table>
+      )}
     </div>
   )
 }
@@ -344,7 +378,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
   useEffect(() => { if (flagged) setWasFlagged(true) }, [flagged])
-  if (aud && !flagged) return null      // audience tabs only surface problems
+  if (aud && !flagged && !wasFlagged) return null   // audience tabs: show problems AND the moment they clear
   return (
     <>
       {!aud && checking && !matches && <p className="muted" style={{ margin: '6px 0 0' }}>Checking similarity…</p>}
@@ -426,14 +460,15 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, sectionDirty, discardSection }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, sectionDirty, discardSection, savedPayload }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   return (
     <div className="card">
-      <SectionDraftBanner dirty={!!sectionDirty} section="base" discard={discardSection} />
+      <SectionDraftBanner dirty={!!sectionDirty} section="base" discard={discardSection}
+        draft={payload} published={savedPayload} />
       <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
       <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
       <label>Title</label>
@@ -503,7 +538,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set, sectionDirty, discardSection }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set, sectionDirty, discardSection, savedPayload }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -511,7 +546,8 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
 
   return (
     <div className="card">
-      <SectionDraftBanner dirty={!!sectionDirty} section={aud} discard={discardSection} />
+      <SectionDraftBanner dirty={!!sectionDirty} section={aud} discard={discardSection}
+        draft={basePayload} published={savedPayload} />
       <div className="toolbar">
         <h2 style={{ margin: 0 }}>Overrides for <span className="pill aud">{aud}</span></h2>
         {!enabled && <span className="pill off">hidden — enable in Manage → Audience access</span>}
