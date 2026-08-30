@@ -143,6 +143,30 @@ export default function ToolEditor() {
   }, [matches, productKey, tab])
 
 
+  const BASE_KEYS = ['name', 'title', 'description', 'input_schema', 'annotations']
+  const baseDirty = !isNew && !!savedPayload && BASE_KEYS.some(k =>
+    JSON.stringify((payload as any)[k] ?? null) !== JSON.stringify((savedPayload as any)[k] ?? null))
+  const audDirty = (a: string) => !isNew && !!savedPayload &&
+    JSON.stringify(payload.audiences?.[a] ?? null) !== JSON.stringify(savedPayload.audiences?.[a] ?? null)
+  const discardSection = (section: string) => {
+    if (!savedPayload) return
+    if (section === 'base') {
+      setPayload((p: any) => {
+        const next = { ...p }
+        for (const k of BASE_KEYS) next[k] = structuredClone((savedPayload as any)[k])
+        return next
+      })
+    } else {
+      setPayload((p: any) => {
+        const a = { ...(p.audiences ?? {}) }
+        const pub = savedPayload.audiences?.[section]
+        if (pub) a[section] = structuredClone(pub); else delete a[section]
+        return { ...p, audiences: a }
+      })
+    }
+    toast(`${section === 'base' ? 'external' : section} draft discarded — showing the published version`)
+  }
+
   const set = (patch: any) => setPayload((p: any) => ({ ...p, ...patch }))
   const setSchema = (fn: (s: any) => any) => setPayload((p: any) => ({ ...p, input_schema: fn(structuredClone(p.input_schema)) }))
   const setOverlay = (aud: string, fn: (o: Overlay) => Overlay) =>
@@ -204,10 +228,12 @@ export default function ToolEditor() {
       )}
       <div className="tabs">
         <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}
-          title="The definition every caller gets — external is the base">external</button>
+          title="The definition every caller gets — external is the base">external
+          {baseDirty && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}</button>
         {audiences.filter(a => a !== 'external').map(a => (
           <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
-            {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
+            {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}
+            {audDirty(a) && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}</button>
         ))}
         {!isNew && (
           <button className={tab === 'similar' ? 'active' : ''} onClick={() => setTab('similar')}>
@@ -224,6 +250,7 @@ export default function ToolEditor() {
       </div>
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
+          sectionDirty={baseDirty} discardSection={discardSection}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
@@ -231,6 +258,7 @@ export default function ToolEditor() {
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
           basePayload={payload} setOverlay={setOverlay}
+          sectionDirty={audDirty(tab)} discardSection={discardSection}
           matches={matches} checking={checking} set={set} />
       ) : null}
 
@@ -278,6 +306,19 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
       <div className="preview">{preview
         ? JSON.stringify(tab === 'base' ? preview : { [tab]: preview[tab] }, null, 2)
         : errors.length ? '⚠ fix the errors to see the preview' : '…'}</div>
+    </div>
+  )
+}
+
+function SectionDraftBanner({ dirty, section, discard }:
+  { dirty: boolean; section: string; discard: (s: string) => void }) {
+  if (!dirty) return null
+  return (
+    <div className="draft-banner">
+      <span className="draft-mark">✎</span> This tab has unsaved draft changes — not published.
+      <button className="small" style={{ marginLeft: 8 }}
+        title="Restore only this tab to its published version"
+        onClick={() => discard(section)}>Discard this tab's draft</button>
     </div>
   )
 }
@@ -385,13 +426,14 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, sectionDirty, discardSection }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
   return (
     <div className="card">
+      <SectionDraftBanner dirty={!!sectionDirty} section="base" discard={discardSection} />
       <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
       <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
       <label>Title</label>
@@ -461,7 +503,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set, sectionDirty, discardSection }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -469,6 +511,7 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
 
   return (
     <div className="card">
+      <SectionDraftBanner dirty={!!sectionDirty} section={aud} discard={discardSection} />
       <div className="toolbar">
         <h2 style={{ margin: 0 }}>Overrides for <span className="pill aud">{aud}</span></h2>
         {!enabled && <span className="pill off">hidden — enable in Manage → Audience access</span>}
