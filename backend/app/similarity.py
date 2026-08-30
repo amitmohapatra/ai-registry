@@ -87,8 +87,10 @@ def duplicate_pairs(candidates: List[dict], threshold: float) -> List[dict]:
     iu, ju = np.triu_indices(len(cands), k=1)  # explicit upper-triangle indices: no
     keep = sim[iu, ju] >= threshold            # mirrored or self pairs, ever
     pairs = [{
-        "a": {k: cands[i][k] for k in ("id", "name", "product_key", "type")},
-        "b": {k: cands[j][k] for k in ("id", "name", "product_key", "type")},
+        "a": {k: cands[i][k] for k in ("id", "name", "product_key", "type")}
+             | ({"view": cands[i]["view"]} if cands[i].get("view") else {}),
+        "b": {k: cands[j][k] for k in ("id", "name", "product_key", "type")}
+             | ({"view": cands[j]["view"]} if cands[j].get("view") else {}),
         "score": round(max(0.0, float(sim[i, j])), 4),
         "cross_product": cands[i]["product_id"] != cands[j]["product_id"],
     } for i, j in zip(iu[keep], ju[keep], strict=True)]

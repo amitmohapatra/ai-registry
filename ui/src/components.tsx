@@ -138,11 +138,11 @@ export function OverlapPairs({ report, explain, cap = 50 }: {
         const rows = [(
           <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
             <td><b className="score">{p.a.product_key}/{p.a.name}</b>
-              {p.audiences?.a && <span className="pill aud" style={{ marginLeft: 6 }}
-                title={`Driven by this tool's ${p.audiences.a} audience text`}>{p.audiences.a} text</span>}</td>
+              {p.a.view && p.a.view !== 'all' && <span className="pill aud" style={{ marginLeft: 6 }}
+                title={`This row compares the text served to: ${p.a.view}`}>{p.a.view}</span>}</td>
             <td><b className="score">{p.b.product_key}/{p.b.name}</b>
-              {p.audiences?.b && <span className="pill aud" style={{ marginLeft: 6 }}
-                title={`Driven by this tool's ${p.audiences.b} audience text`}>{p.audiences.b} text</span>}</td>
+              {p.b.view && p.b.view !== 'all' && <span className="pill aud" style={{ marginLeft: 6 }}
+                title={`This row compares the text served to: ${p.b.view}`}>{p.b.view}</span>}</td>
             <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
             <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>

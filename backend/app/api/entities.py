@@ -240,6 +240,10 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
     if within_product_id:
         aud_q = aud_q.where(Audience.product_id == within_product_id)
     audience_keys = sorted((await db.execute(aud_q)).scalars().all())
+    rows = (await db.execute(select(Audience.product_id, Audience.key))).all()
+    auds_of: dict = {}
+    for pid, key in rows:
+        auds_of.setdefault(pid, []).append(key)
 
     # every PUBLISHED audience override is a real description served to models,
     # so each variant competes in the scan; the worst variant of a pair drives.
@@ -260,18 +264,23 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
             else:
                 expanded.append(c)                 # audience inherits the base view
             continue
-        expanded.append(c)
+        overridden = []
+        variants = []
         for aud, ov in overlays.items():
             o = (ov or {}).get("overrides") or {}
             if (ov or {}).get("enabled") is False:
                 continue
             if not (o.get("description") or o.get("title")):
                 continue
+            overridden.append(aud)
             vp = {**c["payload"]}
             vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
-            v = {**c, "id": f"{c['id']}::{aud}", "payload": vp,
-                 "text": embed_text_of(vp), "vec": None}
-            expanded.append(v); need_vecs.append(v)
+            variants.append({**c, "id": f"{c['id']}::{aud}", "payload": vp,
+                             "text": embed_text_of(vp), "vec": None, "view": aud})
+        inheriting = [k for k in auds_of.get(c["product_id"], []) if k not in overridden]
+        base_view = "all" if not overridden else (", ".join(inheriting) or "base")
+        expanded.append({**c, "view": base_view})
+        expanded.extend(variants); need_vecs.extend(variants)
     if need_vecs:
         from ..services import embedder
         vecs = await embedder().embed([v["text"] for v in need_vecs])
@@ -284,21 +293,14 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
         pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
         pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
         pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
-        best: dict = {}
-        for p in pairs:                    # one row per tool pair, worst wins
-            a_id, b_id = base(p["a"]["id"]), base(p["b"]["id"])
-            key = tuple(sorted((a_id, b_id)))
-            if key in best and best[key]["score"] >= p["score"]:
-                continue
-            auds = {side: pid.split("::")[1]
-                    for side, pid in (("a", p["a"]["id"]), ("b", p["b"]["id"]))
-                    if "::" in pid}
-            q = {**p, "a": {**p["a"], "id": a_id}, "b": {**p["b"], "id": b_id}}
-            if auds:
-                q["audiences"] = auds
-            best[key] = q
-        return sorted((p for p in best.values() if p["score"] >= th),
-                      key=lambda p: -p["score"])
+        out = []
+        for p in pairs:                    # every view combination is a real row:
+            if p["score"] < th:            # an aggregator can put ANY view of A
+                continue                   # next to ANY view of B in one context
+            out.append({**p,
+                        "a": {**p["a"], "id": base(p["a"]["id"])},
+                        "b": {**p["b"], "id": base(p["b"]["id"])}})
+        return sorted(out, key=lambda p: -p["score"])
 
     await db.close()          # release the pooled connection during CPU work
     async with _score_gate:                        # CPU work off the event loop
