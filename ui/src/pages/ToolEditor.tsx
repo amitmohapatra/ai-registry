@@ -414,6 +414,15 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
   const drv = (matches as any)?.flagged_audience ?? null   // null = external/base text drives
   const here = aud ?? null
   const owns = drv === here
+  // can THIS user edit the other side? drives the cross-fix path's wording
+  const [otherRole, setOtherRole] = useState<string | null>(null)
+  const topId = matches?.matches?.[0]?.id
+  const noPackages = !!matches?.suggestions && !matches?.suggestions?.packages?.length
+  useEffect(() => {
+    if (!topId || !noPackages) return
+    const pk = matches.matches[0].product_key
+    api.product(pk).then((p: any) => setOtherRole(p.role)).catch(() => setOtherRole('none'))
+  }, [topId, noPackages])
   // a fix must land on the TEXT that collides: base description normally, or
   // the driving audience's override when the warning says an override drives
   const applyDesc = (desc: string) => {
@@ -506,10 +515,23 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
               </p>
               <p style={{ margin: '4px 0', fontWeight: 400 }}>
                 <b>2.</b> The conflict may be fixable from the other side — its wording may have
-                drifted into this tool's domain:{' '}
-                <RouterLink to={`/p/${top.product_key}/tools/${top.id}`}>
-                  open {top.product_key}/{top.name}</RouterLink>{' '}
-                and check its warning for verified rewrites of this pair.
+                drifted into this tool's domain.{' '}
+                {(otherRole === 'admin' || otherRole === 'super_admin') ? (<>
+                  <RouterLink to={`/p/${top.product_key}/tools/${top.id}`}>
+                    Open {top.product_key}/{top.name}</RouterLink>{' '}
+                  and check its warning for verified rewrites of this pair.
+                </>) : (<>
+                  You don't have edit access to <b className="score">{top.product_key}</b> —
+                  copy this report for that product's admin:{' '}
+                  <button className="icon-act" title="Copy an overlap report to send to the other product's team"
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        `Tool overlap: ${payload?.name ?? 'this tool'} <-> ${top.product_key}/${top.name} at ${Math.round(top.score * 100)}% (threshold ${Math.round(th * 100)}%). ` +
+                        `${top.name}'s description may have drifted into another product's domain. ` +
+                        `Please open /p/${top.product_key}/tools/${top.id} in the AI Registry — its editor shows verified rewrites for this pair.`)
+                      toast('Report copied — send it to the other product\'s admin')
+                    }}>⧉</button>
+                </>)}
               </p>
               <p style={{ margin: '4px 0', fontWeight: 400 }}>
                 <b>3.</b> They differ → say how, in this description. Fill this frame with your
