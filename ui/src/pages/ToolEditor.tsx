@@ -634,8 +634,6 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, 
             </p>
           )
         })()}
-        <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the external tab —
-          internal differs only in wording, never in schema.</p>
       </>)}
     </div>
   )
