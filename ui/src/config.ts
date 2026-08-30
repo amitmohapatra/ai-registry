@@ -7,3 +7,4 @@ export const CHECK_BOUNDARY_MS = 600   // similarity check after a word boundary
 export const CHECK_MIDWORD_MS = 1800   // …and while still mid-word
 export const HOVER_CLOSE_MS = 250      // hover-intent grace before popovers close
 export const OVERLAP_PAGE = 50         // overlap pairs revealed per scroll step
+export const ACCESS_CHIP_MAX = 3     // chips shown inline before collapsing to “+N more”

@@ -3,7 +3,7 @@ import { api, User } from '../api'
 import { errorText } from '../api'
 import { toast } from '../App'
 import { Sentinel } from '../components'
-import { PAGE_SIZE, SEARCH_DEBOUNCE_MS } from '../config'
+import { ACCESS_CHIP_MAX, PAGE_SIZE, SEARCH_DEBOUNCE_MS } from '../config'
 import { validatePassword } from '../validators'
 
 const HUES = [210, 275, 160, 25, 340, 190, 95, 0]
@@ -23,7 +23,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({ email: '', name: '', password: '', is_super_admin: false })
   const [err, setErr] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const [pop, setPop] = useState<{ kind: 'grant' | 'menu'; id: string } | null>(null)
+  const [pop, setPop] = useState<{ kind: 'grant' | 'menu' | 'all'; id: string } | null>(null)
   const [grant, setGrant] = useState({ product: '', role: 'user' })
   const [armed, setArmed] = useState('')            // menu item awaiting its confirm click
   const loading = useRef(false)
@@ -72,25 +72,8 @@ export default function UsersPage() {
             <option value="">All products</option>
             {products.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
           </select>
-          <button className="primary small" onClick={() => { setShowCreate(v => !v); setErr('') }}>
-            {showCreate ? 'Cancel' : '+ Add person'}</button>
+          <button className="primary small" onClick={() => { setShowCreate(true); setErr('') }}>+ Add person</button>
         </div>
-        {showCreate && (
-          <form className="onboard-row" onSubmit={create}>
-            <div style={{ flex: 2 }}><label>Email</label>
-              <input autoFocus value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
-            <div style={{ flex: 1 }}><label>Name</label>
-              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-            <div style={{ flex: 1 }}><label>Password</label>
-              <input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} /></div>
-            <label className="switch" style={{ alignSelf: 'end', paddingBottom: 8 }}>
-              <input type="checkbox" style={{ width: 'auto' }} checked={form.is_super_admin}
-                onChange={e => setForm({ ...form, is_super_admin: e.target.checked })} /> Super admin
-            </label>
-            <button className="primary" style={{ alignSelf: 'end' }}>Create</button>
-            {err && <div className="field-err" style={{ flexBasis: '100%' }}>{err}</div>}
-          </form>
-        )}
         <table className="people-table">
           <colgroup><col style={{ width: '26%' }} /><col /><col style={{ width: 170 }} /><col style={{ width: 48 }} /></colgroup>
           <thead><tr><th>Person</th><th>Product access</th><th style={{ textAlign: 'right' }}>Account</th><th /></tr></thead>
@@ -107,13 +90,31 @@ export default function UsersPage() {
               </td>
               <td>
                 <div className="chips">
-                  {(u.memberships ?? []).map(m => (
+                  {(u.memberships ?? []).slice(0, ACCESS_CHIP_MAX).map(m => (
                     <span key={m.product_key} className="chip" title={`${m.role} on ${m.product_name}`}>
                       {m.product_key} <span className="role">· {m.role}</span>
                       <span className="x" title={`Remove ${u.email} from ${m.product_key}`}
                         onClick={() => act(api.removeMember(m.product_key, u.id), `Removed from ${m.product_key}`)}>×</span>
                     </span>
                   ))}
+                  {(u.memberships ?? []).length > ACCESS_CHIP_MAX && (
+                    <span className="pop-wrap">
+                      <span className="chip more" onClick={() => setPop({ kind: 'all', id: u.id })}>
+                        +{(u.memberships ?? []).length - ACCESS_CHIP_MAX} more</span>
+                      {pop?.kind === 'all' && pop.id === u.id && (
+                        <div className="pop-panel access-list">
+                          {(u.memberships ?? []).map(m => (
+                            <div key={m.product_key} className="access-row">
+                              <b>{m.product_name}</b>
+                              <span className="role">{m.role}</span>
+                              <span className="x" title={`Remove ${u.email} from ${m.product_key}`}
+                                onClick={() => act(api.removeMember(m.product_key, u.id), `Removed from ${m.product_key}`)}>×</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </span>
+                  )}
                   {u.is_super_admin && !(u.memberships ?? []).length &&
                     <span className="muted" style={{ fontSize: 12.5 }}>all products via super admin</span>}
                   <span className="pop-wrap">
@@ -170,6 +171,33 @@ export default function UsersPage() {
         {total > PAGE_SIZE && <div className="pager"><span>{users.length} of {total} loaded{users.length < total ? ' — scroll for more' : ''}</span></div>}
       </div>
       {pop && <div className="pop-backdrop" onClick={closePop} />}
+      {showCreate && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowCreate(false) }}>
+          <form className="modal" onSubmit={create}>
+            <h3>Add person</h3>
+            <p className="sub">They sign in with this email; grant product access from their row afterwards.</p>
+            <label>Email</label>
+            <input autoFocus type="email" required value={form.email}
+              onChange={e => setForm({ ...form, email: e.target.value })} />
+            <label>Name</label>
+            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <label>Password</label>
+            <input type="password" required value={form.password}
+              onChange={e => setForm({ ...form, password: e.target.value })} />
+            <label className="check" style={{ fontWeight: 400, color: 'var(--text)' }}>
+              <input type="checkbox" checked={form.is_super_admin}
+                onChange={e => setForm({ ...form, is_super_admin: e.target.checked })} />
+              <span>Super admin
+                <span className="hint">Full access to every product and this console</span></span>
+            </label>
+            {err && <div className="field-err" style={{ marginTop: 10 }}>{err}</div>}
+            <div className="modal-foot">
+              <button type="button" className="quiet" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button className="primary">Create</button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   )
 }
