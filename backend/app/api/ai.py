@@ -21,6 +21,7 @@ router = APIRouter(prefix="/v1/products/{product_key}", tags=["ai"])
 class DraftIn(BaseModel):
     type: str = "tool"
     payload: dict
+    suggestions: bool = True    # False = cheap while-typing check (matches only)
 
 
 class SettingsIn(BaseModel):
@@ -113,7 +114,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     import json as _json
     reg_state = sorted((c["id"], c.get("v")) for c in cands)
     cache_key = hashlib.sha256(_json.dumps(
-        [payload, threshold, tune, reg_state],
+        [payload, threshold, tune, reg_state, body.suggestions],
         sort_keys=True, default=str).encode()).hexdigest()
     hit = _preview_cache.get(cache_key)
     if hit is not None:
@@ -129,8 +130,10 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     def _score():
         from ..suggestions import build_suggestions
         pl = dict(payload)
-        matches = rank(vec, text, cands, top_k=int(tune["candidate_top_k"]),
-                       exclude_id=exclude)
+        # while-typing tier reranks only the top few — the warning shows the
+        # top match; the full net is reserved for suggestion validation
+        top_k = int(tune["candidate_top_k"]) if body.suggestions else 3
+        matches = rank(vec, text, cands, top_k=top_k, exclude_id=exclude)
         matches = apply_rerank(pl, matches, by_id)
         for m in matches:
             m["name_sim"] = name_similarity(pl.get("name", ""), m["name"])
@@ -151,14 +154,14 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                 flagged_audience = aud_key
 
         top_explain = None
-        if matches and matches[0]["score"] >= min(0.4, threshold):
+        if body.suggestions and matches and matches[0]["score"] >= min(0.4, threshold):
             other_pl = by_id.get(matches[0]["id"])
             if other_pl is not None:
                 top_explain = {"other": {"id": matches[0]["id"], "name": matches[0]["name"],
                                          "product_key": matches[0]["product_key"]},
                                **explain_pair(pl, other_pl)}
         suggestions = None
-        if matches:
+        if matches and body.suggestions:
             top = matches[0]
             flagged = (top["score"] >= threshold
                        or (top.get("name_sim") or 0) >= tune["name_collision_sim"])

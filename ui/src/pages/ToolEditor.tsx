@@ -52,7 +52,7 @@ export default function ToolEditor() {
       api.entity(productKey, entityId).then(e => { // coming back always shows the published tool
         setSavedPayload(e.payload); setVersion(e.version)
         setPayload(e.payload)
-        api.similarPreview(productKey, { type: 'tool',
+        api.similarPreview(productKey, { type: 'tool', suggestions: false,
           payload: { ...e.payload, _entity_id: entityId } })
           .then(setSavedMatches).catch(() => {})              // panel shows PUBLISHED state
       })
@@ -82,20 +82,41 @@ export default function ToolEditor() {
     }, 350)
   }, [payload, productKey])
 
-  // live similarity — draft-based, works before and after saving
+  // live similarity, two tiers so typing scales:
+  //  1. CHEAP check (matches + % only) after the user finishes a word —
+  //     600ms on a word/sentence boundary, 1800ms mid-word
+  //  2. the expensive resolution packages are fetched separately (below),
+  //     only when flagged and only once the draft has settled
   useEffect(() => {
     window.clearTimeout(matchDebounce.current)
     if (!payload.name && !payload.description) return
+    const tail = String(payload.description ?? '').slice(-1)
+    const boundary = tail === '' || /[\s.,;:!?)]/.test(tail)
     matchDebounce.current = window.setTimeout(() => {
       setChecking(true)
-      api.similarPreview(productKey, { type: 'tool',
+      api.similarPreview(productKey, { type: 'tool', suggestions: false,
         payload: { ...payload, _entity_id: entityId } })
-        .then(setMatches).catch(() => {}).finally(() => setChecking(false))
-    }, 500)
-    // deps cover every field similarity reads: name, title, description,
-    // schema, and audience overrides (audience text can collide on its own)
+        .then(r => setMatches(prev => ({ ...r,
+          // keep already-loaded packages while the % updates
+          suggestions: r.matches[0] && prev?.suggestions
+            && r.matches[0].id === prev.matches[0]?.id ? prev.suggestions : r.suggestions })))
+        .catch(() => {}).finally(() => setChecking(false))
+    }, boundary ? 600 : 1800)
   }, [payload.name, payload.title, payload.description, payload.input_schema,
       JSON.stringify(payload.audiences ?? {}), productKey])
+
+  // tier 2: fetch resolutions only when flagged, after the draft settles
+  useEffect(() => {
+    const top = matches?.matches?.[0]
+    const th2 = matches?.threshold ?? 0.5
+    if (!top || top.score < th2 || matches?.suggestions) return
+    const id = window.setTimeout(() => {
+      api.similarPreview(productKey, { type: 'tool', suggestions: true,
+        payload: { ...payload, _entity_id: entityId } })
+        .then(setMatches).catch(() => {})
+    }, 900)
+    return () => window.clearTimeout(id)
+  }, [matches, productKey])
 
   const params: Param[] = useMemo(() => {
     const props = payload.input_schema?.properties ?? {}
@@ -118,7 +139,7 @@ export default function ToolEditor() {
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
         sessionStorage.removeItem(draftKey); setSavedPayload(payload)
-        api.similarPreview(productKey, { type: 'tool',
+        api.similarPreview(productKey, { type: 'tool', suggestions: false,
           payload: { ...payload, _entity_id: entityId } })
           .then(setSavedMatches).catch(() => {})              // published -> panel updates now
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
@@ -301,6 +322,11 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
                   </span>
                 ))}
             </span>
+          )}
+          {!matches.suggestions && (
+            <div className="sugg-row" style={{ marginTop: 8 }}>
+              <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
+            </div>
           )}
           {matches.suggestions?.packages?.length ? (
             <div className={`resolve-card ${checking ? 'rechecking' : ''}`}>
