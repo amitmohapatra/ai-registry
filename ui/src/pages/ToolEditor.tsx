@@ -171,6 +171,10 @@ export default function ToolEditor() {
         <div><h1>{isNew ? 'New tool' : payload.name} {!isNew && <span className="muted">v{version}</span>}</h1>
           <span className="muted">Edits publish to every running MCP server the moment you save.</span></div>
         <div className="row">
+          {!isNew && savedPayload && JSON.stringify(payload) !== JSON.stringify(savedPayload) && (
+            <span className="pill off" title="Your edits (including applied fixes) are live in this draft but not published — Save & publish to make them real; leaving discards them">
+              unsaved changes</span>
+          )}
           <button onClick={() => nav(`/p/${productKey}`)}>Back</button>
           {canEdit
             ? <button className="primary" onClick={save}
