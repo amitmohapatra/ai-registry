@@ -139,11 +139,17 @@ export function OverlapPairs({ report, explain, cap = 50, showCross = true }: {
         const rows = [(
           <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
             <td><b className="score">{p.a.product_key}/{p.a.name}</b>
-              {p.a.view === 'internal' && <span className="pill aud" style={{ marginLeft: 6 }}
-                title="This side compares the tool's internal text">internal</span>}</td>
+              {p.a.view && <span className={`pill ${p.a.view === 'internal' ? 'aud' : 'user'}`}
+                style={{ marginLeft: 6 }}
+                title={p.a.view === 'internal' ? "This side compares the tool's internal text"
+                  : "This side compares the tool's external text"}>
+                {p.a.view === 'internal' ? 'internal' : 'external'}</span>}</td>
             <td><b className="score">{p.b.product_key}/{p.b.name}</b>
-              {p.b.view === 'internal' && <span className="pill aud" style={{ marginLeft: 6 }}
-                title="This side compares the tool's internal text">internal</span>}</td>
+              {p.b.view && <span className={`pill ${p.b.view === 'internal' ? 'aud' : 'user'}`}
+                style={{ marginLeft: 6 }}
+                title={p.b.view === 'internal' ? "This side compares the tool's internal text"
+                  : "This side compares the tool's external text"}>
+                {p.b.view === 'internal' ? 'internal' : 'external'}</span>}</td>
             <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
             {showCross && <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>}
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
