@@ -113,10 +113,11 @@ export function ToolInfo({ payload, version, audiences }:
 
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
-export function OverlapPairs({ report, explain, cap = 50 }: {
+export function OverlapPairs({ report, explain, cap = 50, showCross = true }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
   cap?: number
+  showCross?: boolean
 }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<any>('idle')
@@ -132,7 +133,7 @@ export function OverlapPairs({ report, explain, cap = 50 }: {
   return (
     <>
     <table>
-      <thead><tr><th>Tool A</th><th>Tool B</th><th>Similarity</th><th>Cross-product</th><th /></tr></thead>
+      <thead><tr><th>Tool A</th><th>Tool B</th><th>Similarity</th>{showCross && <th>Cross-product</th>}<th /></tr></thead>
       <tbody>{shown.flatMap((p, i) => {
         const k = p.a.id + p.b.id
         const rows = [(
@@ -144,7 +145,7 @@ export function OverlapPairs({ report, explain, cap = 50 }: {
               {p.b.view === 'internal' && <span className="pill aud" style={{ marginLeft: 6 }}
                 title="This side compares the tool's internal text">internal</span>}</td>
             <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
-            <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>
+            {showCross && <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>}
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
           </tr>)]
         if (open === k) rows.push(

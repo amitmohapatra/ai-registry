@@ -314,18 +314,21 @@ async def _build_duplicates(db: AsyncSession, threshold: float,
 
 @router.get("/reports/duplicates")
 async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = Depends(get_session),
-                     scope: str = Query(default="all", pattern="^(product|all)$"),
+                     scope: str = Query(default="all", pattern="^(product|all|cross)$"),
                      audience: str = Query(default="all", max_length=64),
                      threshold: float = Query(default=0.0)):
     """A product's view: its own overlaps only. scope=product: both sides here;
-    scope=all: pairs INVOLVING this product (never unrelated products' pairs).
-    audience composes with scope: 'all' or a specific audience's view."""
+    scope=cross: this product's tools vs OTHER products' tools only;
+    scope=all: pairs involving this product (both of the above)."""
     product, _, _ = ctx
     if scope == "product":
         return await _build_duplicates(db, threshold, within_product_id=product.id,
                                        audience=audience)
-    return await _build_duplicates(db, threshold, involving_key=product.key,
-                                   audience=audience)
+    out = await _build_duplicates(db, threshold, involving_key=product.key,
+                                  audience=audience)
+    if scope == "cross":
+        out["pairs"] = [p for p in out["pairs"] if p["cross_product"]]
+    return out
 
 
 registry_reports = APIRouter(prefix="/v1/reports", tags=["entities"])
