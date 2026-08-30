@@ -491,14 +491,30 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
             </div>
           )}
           {owns && matches.suggestions && !matches.suggestions.packages?.length && (
-            <div className="sugg-row" style={{ marginTop: 8, fontWeight: 400 }}>
-              No meaning-preserving rewrite reduces this pair — these two tools describe the same
-              action. Consider keeping one and removing the other
-              {matches.suggestions.template && (<>
-                , or state what genuinely differs:
-                <button className="icon-act" style={{ marginLeft: 6 }} title="Copy a description frame to fill in"
-                  onClick={() => { navigator.clipboard.writeText(matches.suggestions!.template!); toast('Template copied') }}>⧉</button>
-              </>)}.
+            <div className="resolve-card dup" style={{ marginTop: 8 }}>
+              <div className="resolve-head" style={{ color: '#3c4043' }}>
+                Every rewrite we tested still matches {top.product_key}/{top.name} — the two
+                descriptions mean the same thing
+              </div>
+              <p style={{ margin: '8px 0 4px', fontWeight: 400 }}>
+                Automatic fixes only reword; they never change meaning. To resolve this you need
+                a fact only you know — pick one:
+              </p>
+              <p style={{ margin: '4px 0', fontWeight: 400 }}>
+                <b>1.</b> They really are the same → keep <b className="score">{top.product_key}/{top.name}</b>{' '}
+                and remove this tool (or vice versa).
+              </p>
+              <p style={{ margin: '4px 0', fontWeight: 400 }}>
+                <b>2.</b> They differ → say how, in the description. Fill this frame with your
+                data source, when to use which, and what this tool never does:
+              </p>
+              {matches.suggestions.template && (
+                <div className="template-text">
+                  <code>{matches.suggestions.template}</code>
+                  <button className="icon-act" title="Copy the frame — paste it into the description and replace the <placeholders>"
+                    onClick={() => { navigator.clipboard.writeText(matches.suggestions!.template!); toast('Template copied — paste it into the description') }}>⧉</button>
+                </div>
+              )}
             </div>
           )}
           {owns && matches.suggestions?.packages?.length ? (
