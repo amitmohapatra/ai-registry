@@ -183,6 +183,8 @@ export default function ToolEditor() {
             {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}</button>
         ))}
       </div>
+      <div className="editor-grid">
+        <div className="editor-main">
       {tab === 'base' ? (
         <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew}
           matches={matches} setPayload={setPayload} checking={checking}
@@ -192,10 +194,13 @@ export default function ToolEditor() {
       ) : (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}} params={params}
           basePayload={payload} setOverlay={setOverlay} errFor={errFor}
-          preview={preview} errors={errors} />
+          preview={preview} errors={errors} matches={matches} checking={checking} set={set} />
       )}
-      {!isNew && <SimilarPanel entityId={entityId} matches={savedMatches} />}
-      {!isNew && (
+        </div>
+        {!isNew && (
+          <aside className="editor-rail">
+            {<SimilarPanel entityId={entityId} matches={savedMatches} />}
+            {(
             <details className="card collapsible">
               <summary><h2>Version history <span className="muted">({versions.length} version{versions.length === 1 ? '' : 's'} — click to expand)</span></h2></summary>
               <table><tbody>{versions.map(v => (
@@ -214,6 +219,9 @@ export default function ToolEditor() {
               ))}</tbody></table>
             </details>
       )}
+          </aside>
+        )}
+      </div>
     </>
   )
 }
@@ -283,27 +291,17 @@ function SimilarPanel({ entityId, matches }:
   )
 }
 
-/* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
-  const [jsonMode, setJsonMode] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
+function SimilarityWarning({ matches, checking, set, dirty, aud }: any) {
   const [wasFlagged, setWasFlagged] = useState(false)
   const [showResDesc, setShowResDesc] = useState<number | null>(null)
-  const [jsonText, setJsonText] = useState('')
-  const [jsonErr, setJsonErr] = useState('')
   const th = matches?.threshold ?? 0.5
   const top = matches?.matches?.[0]
   const flagged = top && top.score >= th
   useEffect(() => { if (flagged) setWasFlagged(true) }, [flagged])
+  if (aud && !flagged) return null      // audience tabs only surface problems
   return (
-    <div className="card">
-      <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
-      <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
-      <label>Title</label>
-      <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
-      <label>Description * (what the model reads — the most important field)</label>
-      <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      {checking && !matches && <p className="muted" style={{ margin: '6px 0 0' }}>Checking similarity…</p>}
+    <>
+      {!aud && checking && !matches && <p className="muted" style={{ margin: '6px 0 0' }}>Checking similarity…</p>}
       {flagged && (
         <div className="err" style={{ marginTop: 6 }}>
           ⚠ <b className="score">{Math.round(top.score * 100)}%</b> match with{' '}
@@ -371,6 +369,25 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
           {Math.round(top.score * 100)}%, below your {Math.round(th * 100)}% threshold.
         </div>
       )}
+    </>
+  )
+}
+
+/* ---------- base form ---------- */
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty }: any) {
+  const [jsonMode, setJsonMode] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+  const [jsonText, setJsonText] = useState('')
+  const [jsonErr, setJsonErr] = useState('')
+  return (
+    <div className="card">
+      <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
+      <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
+      <label>Title</label>
+      <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
+      <label>Description * (what the model reads — the most important field)</label>
+      <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
+      <SimilarityWarning matches={matches} checking={checking} set={set} dirty={dirty} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -440,7 +457,7 @@ const TYPE_DEFAULTS: Record<string, any> = {
 }
 const ALL_TYPES = Object.keys(TYPE_DEFAULTS)
 
-function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, preview, errors }: any) {
+function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, preview, errors, matches, checking, set }: any) {
   const [showPreview, setShowPreview] = useState(false)
   const ov = overlay.overrides ?? {}
   const pOps = ov.parameters ?? {}
@@ -498,6 +515,7 @@ function AudienceForm({ aud, overlay, params, basePayload, setOverlay, errFor, p
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
             })}>Reset to base description</button>
         )}
+        <SimilarityWarning matches={matches} checking={checking} set={set} aud={aud} />
 
         <label style={{ marginTop: 14 }}>Parameters for {aud}</label>
         <table>
