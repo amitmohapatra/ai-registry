@@ -113,11 +113,13 @@ export function ToolInfo({ payload, version, audiences }:
 
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
-export function OverlapPairs({ report, explain, cap = 50, showCross = true }: {
+export function OverlapPairs({ report, explain, cap = 50, showCross = true,
+  labels = ['Tool A', 'Tool B'] }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
   cap?: number
   showCross?: boolean
+  labels?: [string, string]
 }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<any>('idle')
@@ -133,7 +135,7 @@ export function OverlapPairs({ report, explain, cap = 50, showCross = true }: {
   return (
     <>
     <table>
-      <thead><tr><th>Tool A</th><th>Tool B</th><th>Similarity</th>{showCross && <th>Cross-product</th>}<th /></tr></thead>
+      <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th><th>Similarity</th>{showCross && <th>Cross-product</th>}<th /></tr></thead>
       <tbody>{shown.flatMap((p, i) => {
         const k = p.a.id + p.b.id
         const rows = [(

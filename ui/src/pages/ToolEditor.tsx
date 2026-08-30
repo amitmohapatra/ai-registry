@@ -52,7 +52,9 @@ export default function ToolEditor() {
         setSavedPayload(e.payload); setVersion(e.version)
         setPayload(e.payload)
         api.duplicates(productKey, 'all').then(r => setSavedReport(
-          { ...r, pairs: r.pairs.filter((p: any) => p.a.id === entityId || p.b.id === entityId) }))
+          { ...r, pairs: r.pairs
+              .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
+              .map((p: any) => p.a.id === entityId ? p : { ...p, a: p.b, b: p.a }) }))
           .catch(() => {})                                    // same scan as the overlap pages
       })
       api.versions(productKey, entityId).then(setVersions)
@@ -145,7 +147,9 @@ export default function ToolEditor() {
         const e = await api.updateEntity(productKey, entityId!, { payload })
         sessionStorage.removeItem(draftKey); setSavedPayload(payload)
         api.duplicates(productKey, 'all').then(r => setSavedReport(
-          { ...r, pairs: r.pairs.filter((p: any) => p.a.id === entityId || p.b.id === entityId) }))
+          { ...r, pairs: r.pairs
+              .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
+              .map((p: any) => p.a.id === entityId ? p : { ...p, a: p.b, b: p.a }) }))
           .catch(() => {})                                    // published -> tab updates now
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
@@ -217,6 +221,7 @@ export default function ToolEditor() {
             Similar tools <span className="muted">(as published — one row per audience view, same
             numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
           <OverlapPairs report={savedReport} showCross={false}
+            labels={['This tool', 'Overlaps with']}
             explain={p => api.explainPair(productKey, p.a.id, p.b.id,
               p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />
         </div>
