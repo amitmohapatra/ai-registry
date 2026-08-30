@@ -335,3 +335,8 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
   border-top-color: var(--accent); border-radius: 50%; display: inline-block;
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.onboard-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;
+  padding: 12px 14px; margin-bottom: 14px; background: #f8f9fa;
+  border: 1px solid var(--border); border-radius: 10px; }
+.onboard-row label { margin-top: 0; }
