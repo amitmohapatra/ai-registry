@@ -215,20 +215,24 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                     if m["id"] not in by_id:
                         continue
                     ov = dict(_views_of(by_id[m["id"]]))
-                    nearby.append(ov.get(m.get("match_view"), by_id[m["id"]]))
+                    nearby.append((m["id"], ov.get(m.get("match_view"), by_id[m["id"]])))
                 desc_only = body.view not in ("worst", "base")
                 suggestions = build_suggestions(
                     pl, by_id[top["id"]], product.key, taken,
                     name_collision=flagged and not desc_only,
-                    threshold=threshold, others=nearby, tune=tune)
+                    threshold=threshold, others=[v for _, v in nearby], tune=tune)
                 if suggestions and not suggestions.get("packages"):
                     # nothing fixable from THIS side — check whether the fix
                     # lives on the OTHER side (its wording may have drifted);
                     # same engine, roles swapped, same worst-case verification
+                    # verify the other side against its neighborhood WITHOUT
+                    # itself: scoring its rewrite vs its own old text floors
+                    # every candidate at self-similarity
                     other_sugg = build_suggestions(
                         by_id[top["id"]], pl, top["product_key"], taken,
                         name_collision=True, threshold=threshold,
-                        others=[pl] + nearby, tune=tune)
+                        others=[pl] + [v for i, v in nearby if i != top["id"]],
+                        tune=tune)
                     if other_sugg.get("packages"):
                         suggestions["other_side"] = {
                             "id": top["id"], "name": top["name"],
