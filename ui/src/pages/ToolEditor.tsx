@@ -462,8 +462,9 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                         : <span className="delta part">{Math.round(p.new_overall * 100)}%</span>}
                     </span>
                     <button className="icon-act" disabled={checking}
-                      title={checking ? 'Re-scoring — one moment' : 'Apply name, title and description'}
-                      aria-label={`Apply option ${i + 1}`}
+                      title={checking ? 'Re-scoring — one moment'
+                        : 'Use this suggestion — fills the fields for you (nothing publishes until Save & publish)'}
+                      aria-label={`Use suggestion ${i + 1}`}
                       onClick={() => {
                         set({ name: p.name, title: p.title })
                         const drv = applyDesc(p.description)
