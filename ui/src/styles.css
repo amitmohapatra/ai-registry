@@ -398,3 +398,8 @@ label .req { color: var(--danger); font-weight: 700; }
    pointer can travel into the card without triggering a close */
 .popcard::before { content: ''; position: absolute; left: -14px; top: -6px;
   width: 18px; height: calc(100% + 12px); }
+
+/* cross-product handoff callout inside overlap expansions */
+.handoff { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  margin-bottom: 6px; background: #fef7e0; border: 1px solid #f0d58c;
+  border-radius: 10px; font-size: 13px; }

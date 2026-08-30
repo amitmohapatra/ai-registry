@@ -302,7 +302,7 @@ async def resolve_pair(entity_id: str, other_id: str,
     if hit is not None:
         return hit
 
-    vec_a = a.embedding
+    vec_a, vec_b = a.embedding, b.embedding
 
     def _work():
         from ..suggestions import build_suggestions
@@ -316,9 +316,16 @@ async def resolve_pair(entity_id: str, other_id: str,
             return {"side": "a", "tool": {"id": a.id, "name": a.name,
                                           "product_key": prod_a.key if prod_a else ""},
                     "packages": s1["packages"]}
+        # side B verifies against ITS OWN neighborhood, never against itself —
+        # scoring B's rewrite vs B's old text floors every candidate at
+        # self-similarity and inflates the "verified" number
+        matches_b = rank(vec_b, embed_text_of(pb), cands,
+                         top_k=int(tune["candidate_top_k"]), exclude_id=b.id)
+        nearby_b = [by_id[m["id"]] for m in matches_b
+                    if m["id"] in by_id and m["id"] != b.id]
         s2 = build_suggestions(pb, pa, prod_b.key if prod_b else "", taken,
                                name_collision=True, threshold=threshold,
-                               others=[pa] + nearby, tune=tune)
+                               others=[pa] + nearby_b, tune=tune)
         if s2.get("packages"):
             return {"side": "b", "tool": {"id": b.id, "name": b.name,
                                           "product_key": prod_b.key if prod_b else ""},
