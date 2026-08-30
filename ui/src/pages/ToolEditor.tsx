@@ -39,6 +39,7 @@ export default function ToolEditor() {
   const [checking, setChecking] = useState(false)
   const [savedPayload, setSavedPayload] = useState<any>(null)
   const [savedReport, setSavedReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
+  const [staleDraft, setStaleDraft] = useState<{ from: number; to: number } | null>(null)
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
   const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
@@ -49,9 +50,15 @@ export default function ToolEditor() {
     if (entityId) {
       api.entity(productKey, entityId).then(e => {
         setSavedPayload(e.payload); setVersion(e.version)
-        // a stored draft survives navigation until published or discarded
-        const stored = localStorage.getItem(draftKey)
-        setPayload(stored ? JSON.parse(stored) : e.payload)
+        // a stored draft survives navigation until published or discarded;
+        // it remembers which published version it was based on, so a publish
+        // by someone else while the draft existed is surfaced, not silently
+        // overwritten
+        const raw = localStorage.getItem(draftKey)
+        const sp = raw ? JSON.parse(raw) : null
+        const draftPayload = sp?.payload ?? sp
+        setPayload(draftPayload ?? e.payload)
+        if (sp?.v && sp.v !== e.version) setStaleDraft({ from: sp.v, to: e.version })
         api.duplicates(productKey, 'all').then(r => setSavedReport(
           { ...r, pairs: r.pairs
               .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
@@ -60,8 +67,8 @@ export default function ToolEditor() {
       })
       api.versions(productKey, entityId).then(setVersions)
     } else {
-      const stored = localStorage.getItem(draftKey)
-      if (stored) setPayload(JSON.parse(stored))
+      const raw = localStorage.getItem(draftKey)
+      if (raw) { const sp = JSON.parse(raw); setPayload(sp?.payload ?? sp) }
     }
   }, [productKey, entityId])
 
@@ -75,9 +82,9 @@ export default function ToolEditor() {
     }
     if (!savedPayload) return
     if (JSON.stringify(payload) !== JSON.stringify(savedPayload))
-      localStorage.setItem(draftKey, JSON.stringify(payload))
+      localStorage.setItem(draftKey, JSON.stringify({ v: version, payload }))
     else localStorage.removeItem(draftKey)
-  }, [payload, draftKey, savedPayload, isNew])
+  }, [payload, draftKey, savedPayload, isNew, version])
 
   // live preview — the same validate+resolve pipeline as Save
   useEffect(() => {
@@ -181,7 +188,7 @@ export default function ToolEditor() {
         nav(`/p/${productKey}/tools/${e.id}`)
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
-        localStorage.removeItem(draftKey); setSavedPayload(payload)
+        localStorage.removeItem(draftKey); setSavedPayload(payload); setStaleDraft(null)
         api.duplicates(productKey, 'all').then(r => setSavedReport(
           { ...r, pairs: r.pairs
               .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
@@ -208,7 +215,7 @@ export default function ToolEditor() {
               draft — not published</span>
             <button className="small" title="Throw away the draft and go back to the published version — warnings and suggestions will reappear"
               onClick={() => { localStorage.removeItem(draftKey); setPayload(savedPayload)
-                toast('Draft discarded — showing the published version') }}>Discard draft</button>
+                setStaleDraft(null); toast('Draft discarded — showing the published version') }}>Discard draft</button>
           </>)}
           <button onClick={() => nav(`/p/${productKey}`)}>Back</button>
           {canEdit
@@ -221,6 +228,11 @@ export default function ToolEditor() {
         </div>
       </div>
       {saved && <div className="ok-banner">{saved}</div>}
+      {staleDraft && (
+        <div className="err">⚠ The published version changed (v{staleDraft.from} → v{staleDraft.to})
+          while this draft existed — someone else edited this tool. Review your ✎ changes before
+          publishing (your draft would replace theirs), or discard the draft to take their version.</div>
+      )}
       {errors.length > 0 && (
         <div className="err">{errors.map((e, i) => (
           <div key={i}><span className="path">{e.path || 'payload'}</span> — {e.message}</div>
