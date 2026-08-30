@@ -27,6 +27,21 @@ class UserOut(BaseModel):
     is_active: bool
     model_config = {"from_attributes": True}
 
+class UserPatch(BaseModel):
+    """Super-admin-only edits. All optional — send only what changes."""
+    name: Optional[str] = None
+    is_super_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+class MembershipInfo(BaseModel):
+    product_key: str
+    product_name: str
+    role: str
+
+class UserAdminOut(UserOut):
+    """People console row: the account plus every product it belongs to."""
+    memberships: list[MembershipInfo] = []
+
 # ---- products ----
 class ChannelConfigIn(BaseModel):
     redis_url: str = ""

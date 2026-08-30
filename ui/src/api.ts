@@ -3,7 +3,8 @@
 const BASE = import.meta.env.VITE_API_URL || ''
 
 export type Role = 'super_admin' | 'admin' | 'user'
-export interface User { id: string; email: string; name: string; is_super_admin: boolean }
+export interface Membership2 { product_key: string; product_name: string; role: string }
+export interface User { id: string; email: string; name: string; is_super_admin: boolean; is_active?: boolean; memberships?: Membership2[] }
 export interface Product { id: string; key: string; name: string; description: string; seq: number; role: Role }
 export interface Audience { id: string; key: string; display_name: string; is_default: boolean }
 export interface Member { user_id: string; email: string; name: string; role: string }
@@ -74,8 +75,10 @@ export const api = {
   login: (email: string, password: string) => req<{ access_token: string; user: User }>('POST', '/v1/auth/login', { email, password }),
   me: () => req<User>('GET', '/v1/auth/me'),
   users: () => req<User[]>('GET', '/v1/auth/users'),
-  usersPaged: (opts: { q?: string; limit?: number; offset?: number }) =>
+  usersPaged: (opts: { q?: string; product?: string; limit?: number; offset?: number }) =>
     paged<User>('/v1/auth/users', opts as any),
+  patchUser: (id: string, body: { name?: string; is_super_admin?: boolean; is_active?: boolean }) =>
+    req<User>('PATCH', `/v1/auth/users/${id}`, body),
   directoryPaged: (q: string, limit?: number) =>
     paged<{ email: string; name: string }>('/v1/auth/users/directory', { q, limit }),
   versionsPaged: (pk: string, id: string, opts: { limit?: number; offset?: number }) =>

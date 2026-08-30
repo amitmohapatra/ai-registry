@@ -92,7 +92,12 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
 - **Authorization model.** Three tiers, enforced server-side on every route:
   super admins run the platform (products, people, channels, global settings);
   product admins write within their product (tools, members, audiences, keys);
-  members read theirs. There is NO cross-product access — a product admin who
+  members read theirs. The People page is the super admin's org-wide console —
+  search, filter by product, grant/change/remove any product role, promote or
+  demote super admins (guarded: the last active super admin can never be
+  demoted or deactivated — promote a successor first), and deactivate
+  accounts. Product admins manage their own team from their product's
+  Members tab; super admin is a global flag, never a per-product role. There is NO cross-product access — a product admin who
   hits another product's URL gets a clean access-denied page, and cross-product
   overlap fixes route through a copy-able handoff report instead of a door.
   The registry-wide overlap report and the user directory are the only
