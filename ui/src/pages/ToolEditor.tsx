@@ -7,7 +7,7 @@ import { OverlapPairs, viewAud } from '../components'
 
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
-  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
+  suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; other_side?: { id: string; name: string; product_key: string; packages: { name: string; title: string; description: string; new_overall: number }[] } | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
 const emptyPayload = () => ({
   name: '', description: '',
@@ -513,9 +513,20 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 <b>1.</b> They really are the same → keep <b className="score">{top.product_key}/{top.name}</b>{' '}
                 and remove this tool (or vice versa).
               </p>
+              {matches.suggestions.other_side?.packages?.[0] && (() => {
+                const os = matches.suggestions.other_side
+                const p0 = os.packages[0]
+                return (
+                  <p style={{ margin: '4px 0', fontWeight: 400 }}>
+                    <b>Found it:</b> the fix lives on <b className="score">{os.product_key}/{os.name}</b> —
+                    its wording drifted into this tool's domain. Verified rewrite for it:{' '}
+                    <b className="score">{p0.name}</b> · <span title={p0.description}>{p0.title}</span>{' '}
+                    <span className="delta ok">→ {Math.round(p0.new_overall * 100)}% ✓</span>
+                  </p>
+                )
+              })()}
               <p style={{ margin: '4px 0', fontWeight: 400 }}>
-                <b>2.</b> The conflict may be fixable from the other side — its wording may have
-                drifted into this tool's domain.{' '}
+                <b>2.</b> Apply that fix on the other side.{' '}
                 {(otherRole === 'admin' || otherRole === 'super_admin') ? (<>
                   <RouterLink to={`/p/${top.product_key}/tools/${top.id}`}>
                     Open {top.product_key}/{top.name}</RouterLink>{' '}
@@ -528,7 +539,10 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                       navigator.clipboard.writeText(
                         `Tool overlap: ${payload?.name ?? 'this tool'} <-> ${top.product_key}/${top.name} at ${Math.round(top.score * 100)}% (threshold ${Math.round(th * 100)}%). ` +
                         `${top.name}'s description may have drifted into another product's domain. ` +
-                        `Please open /p/${top.product_key}/tools/${top.id} in the AI Registry — its editor shows verified rewrites for this pair.`)
+                        ((matches.suggestions as any).other_side?.packages?.[0]
+                          ? `Verified fix for ${top.name}: rename to ${(matches.suggestions as any).other_side.packages[0].name} with description: "${(matches.suggestions as any).other_side.packages[0].description}" (drops the pair to ${Math.round((matches.suggestions as any).other_side.packages[0].new_overall * 100)}%). `
+                          : '') +
+                        `Open /p/${top.product_key}/tools/${top.id} in the AI Registry to apply.`)
                       toast('Report copied — send it to the other product\'s admin')
                     }}>⧉</button>
                 </>)}

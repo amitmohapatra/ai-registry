@@ -221,6 +221,19 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                     pl, by_id[top["id"]], product.key, taken,
                     name_collision=flagged and not desc_only,
                     threshold=threshold, others=nearby, tune=tune)
+                if suggestions and not suggestions.get("packages"):
+                    # nothing fixable from THIS side — check whether the fix
+                    # lives on the OTHER side (its wording may have drifted);
+                    # same engine, roles swapped, same worst-case verification
+                    other_sugg = build_suggestions(
+                        by_id[top["id"]], pl, top["product_key"], taken,
+                        name_collision=True, threshold=threshold,
+                        others=[pl] + nearby, tune=tune)
+                    if other_sugg.get("packages"):
+                        suggestions["other_side"] = {
+                            "id": top["id"], "name": top["name"],
+                            "product_key": top["product_key"],
+                            "packages": other_sugg["packages"][:1]}
         return matches, top_explain, flagged_audience, suggestions
 
     # all DB reads are done — release the pooled connection BEFORE the heavy
