@@ -9,6 +9,18 @@ type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
   suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; packages?: { name: string; title: string; description: string; new_overall: number }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; other_side?: { id: string; name: string; product_key: string; packages: { name: string; title: string; description: string; new_overall: number }[] } | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }
 
+/** Whitespace-insensitive equality: a space/tab-only edit is not a change
+ * (mirrors the similarity check's normalization) — strings are compared with
+ * whitespace collapsed and trimmed, recursively through the payload. */
+const normVal = (v: any): any =>
+  typeof v === 'string' ? v.replace(/\s+/g, ' ').trim()
+  : Array.isArray(v) ? v.map(normVal)
+  : v && typeof v === 'object'
+    ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, normVal(x)]))
+    : v
+const normEq = (a: any, b: any) =>
+  JSON.stringify(normVal(a ?? null)) === JSON.stringify(normVal(b ?? null))
+
 const emptyPayload = () => ({
   name: '', description: '',
   input_schema: { type: 'object', properties: {} } as any,
@@ -81,7 +93,7 @@ export default function ToolEditor() {
       return
     }
     if (!savedPayload) return
-    if (JSON.stringify(payload) !== JSON.stringify(savedPayload))
+    if (!normEq(payload, savedPayload))
       localStorage.setItem(draftKey, JSON.stringify({ v: version, payload }))
     else localStorage.removeItem(draftKey)
   }, [payload, draftKey, savedPayload, isNew, version])
@@ -167,9 +179,9 @@ export default function ToolEditor() {
 
   const BASE_KEYS = ['name', 'title', 'description', 'input_schema', 'annotations']
   const baseDirty = !isNew && !!savedPayload && BASE_KEYS.some(k =>
-    JSON.stringify((payload as any)[k] ?? null) !== JSON.stringify((savedPayload as any)[k] ?? null))
+    !normEq((payload as any)[k], (savedPayload as any)[k]))
   const audDirty = (a: string) => !isNew && !!savedPayload &&
-    JSON.stringify(payload.audiences?.[a] ?? null) !== JSON.stringify(savedPayload.audiences?.[a] ?? null)
+    !normEq(payload.audiences?.[a], savedPayload.audiences?.[a])
   const discardSection = (section: string) => {
     if (!savedPayload) return
     if (section === 'base') {
@@ -236,7 +248,7 @@ export default function ToolEditor() {
         <div><h1>{isNew ? 'New tool' : payload.name} {!isNew && <span className="muted">v{version}</span>}</h1>
           <span className="muted">Edits publish to every running MCP server the moment you save.</span></div>
         <div className="row">
-          {!isNew && savedPayload && JSON.stringify(payload) !== JSON.stringify(savedPayload) && (<>
+          {!isNew && savedPayload && !normEq(payload, savedPayload) && (<>
             <span className="pill off" title="Your edits are stored as a draft — they survive navigation but are not served until you Save & publish">
               draft — not published</span>
             <button className="small" title="Throw away the whole draft and go back to the published version"
@@ -363,16 +375,16 @@ function draftRows(section: string, draft: any, published: any): [string, string
   if (!published) return rows
   if (section === 'base') {
     for (const k of ['name', 'title', 'description'])
-      if ((draft[k] ?? '') !== (published[k] ?? ''))
+      if (!normEq(draft[k], published[k]))
         rows.push([k, String(published[k] ?? '—'), String(draft[k] ?? '—')])
-    if (JSON.stringify(draft.input_schema) !== JSON.stringify(published.input_schema))
+    if (!normEq(draft.input_schema, published.input_schema))
       rows.push(['parameters', 'published schema', 'edited schema'])
-    if (JSON.stringify(draft.annotations ?? null) !== JSON.stringify(published.annotations ?? null))
+    if (!normEq(draft.annotations ?? null, published.annotations ?? null))
       rows.push(['annotations', 'published hints', 'edited hints'])
   } else {
     const d = draft.audiences?.[section]?.overrides?.description
     const p = published.audiences?.[section]?.overrides?.description
-    if ((d ?? '') !== (p ?? ''))
+    if (!normEq(d, p))
       rows.push(['description', p ?? '(inheriting external)', d ?? '(inheriting external)'])
     const de = draft.audiences?.[section]?.enabled !== false
     const pe = published.audiences?.[section]?.enabled !== false
