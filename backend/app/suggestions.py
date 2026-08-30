@@ -311,8 +311,10 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                    for t in dict.fromkeys(title_texts) if t != draft.get("title")])
 
     full_desc = desc_text_of(draft).strip()
+    short_original = len(full_desc) <= _TUNE["long_desc_chars"]
     raw_desc = [{"text": t, "new_overall": predicted({"description": t}),
-                 "keeps_content": _retention(t, full_desc) >= _TUNE["retention_min"]}
+                 "keeps_content": short_original
+                 or _retention(t, full_desc) >= _TUNE["retention_min"]}
                 for t in _rewrite_candidates(draft, other, product_key)]
     descriptions = pick(raw_desc)
 
@@ -341,10 +343,11 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                                  max_edits=int(t["max_sentence_edits"]),
                                  long_chars=int(t["long_desc_chars"]),
                                  retention_min=t["retention_min"])
-        desc_pool = [o["text"] for o in
-                     sorted((o for o in raw_desc if o["new_overall"] is not None
-                             and o.get("keeps_content", True)),
-                            key=lambda o: o["new_overall"])[:2]]
+        desc_pool = [o["text"] for o in descriptions]      # verified fixes first
+        desc_pool += [o["text"] for o in
+                      sorted((o for o in raw_desc if o["new_overall"] is not None
+                              and o.get("keeps_content", True)),
+                             key=lambda o: o["new_overall"])[:2]]
         if deep:
             desc_pool.insert(0, deep)
         desc_pool = list(dict.fromkeys(desc_pool))[:3]
@@ -362,6 +365,11 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
             if p["name"] not in seen and p["new_overall"] < round(current_overall, 2):
                 uniq.append(p); seen.add(p["name"])
         packages = uniq[:int(t["packages_max"])]
+        if not packages and descriptions:       # keep name/title, fix the description
+            cur_title = draft.get("title") or humanize(draft.get("name", ""))
+            packages = [{"name": draft.get("name", ""), "title": cur_title,
+                         "description": o["text"], "new_overall": o["new_overall"]}
+                        for o in descriptions[:int(t["packages_max"])]]
     bundle = packages[0] if packages and packages[0]["new_overall"] < threshold else None
 
     # concrete frame the author can fill in — forces the distinguishing facts
