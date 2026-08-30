@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api } from './api'
+import { HOVER_CLOSE_MS, OVERLAP_PAGE } from './config'
 
 /** Two-step inline confirm: first click arms it ("Sure?"), second click within 3s
  * executes. No native dialogs — those are silently swallowed in embedded webviews. */
@@ -79,7 +80,7 @@ export function ToolInfo({ payload, version, audiences }:
   const openNow = () => { window.clearTimeout(closeTimer.current); setOpen(true) }
   const closeSoon = () => {
     window.clearTimeout(closeTimer.current)
-    closeTimer.current = window.setTimeout(() => setOpen(false), 250)
+    closeTimer.current = window.setTimeout(() => setOpen(false), HOVER_CLOSE_MS)
   }
   const props: [string, any][] = Object.entries(payload?.input_schema?.properties ?? {})
   const req = new Set<string>(payload?.input_schema?.required ?? [])
@@ -135,7 +136,24 @@ export function ToolInfo({ payload, version, audiences }:
 
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
-export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = true,
+/* on-scroll loading trigger: renders an invisible line; when it scrolls into
+   view, onHit() fires (load the next page). The callback is kept in a ref so
+   the observer never re-subscribes as parent state changes. */
+export function Sentinel({ onHit }: { onHit: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const cb = useRef(onHit)
+  cb.current = onHit
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ob = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) cb.current() })
+    ob.observe(el)
+    return () => ob.disconnect()
+  }, [])
+  return <div ref={ref} style={{ height: 1 }} />
+}
+
+export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, showCross = true,
   labels = ['Tool A', 'Tool B'], productKey }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
@@ -146,6 +164,7 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
   productKey?: string          // the product page this table sits on, if any —
 }) {                           // banner wording is relative to the VIEWER
   const [open, setOpen] = useState('')
+  const [visible, setVisible] = useState(cap)
   const [detail, setDetail] = useState<any>('idle')
   const [fix, setFix] = useState<any>('idle')
   const [fixOpen, setFixOpen] = useState<number | null>(null)
@@ -165,7 +184,8 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
     }
   }
   const pairs = report?.pairs ?? []
-  const shown = pairs.slice(0, cap)
+  useEffect(() => { setVisible(cap) }, [report, cap])
+  const shown = pairs.slice(0, visible)
   return (
     <>
     <table>
@@ -273,8 +293,9 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
         No overlapping pairs at ≥ {pct(report.threshold)}. 🎉</td></tr>}
       </tbody>
     </table>
+    {pairs.length > visible && <Sentinel onHit={() => setVisible(v => v + cap)} />}
     {pairs.length > cap && <p className="muted" style={{ marginTop: 8 }}>
-      Showing the top {cap} of {pairs.length} pairs, highest similarity first.</p>}
+      {Math.min(visible, pairs.length)} of {pairs.length} pairs loaded, highest similarity first{visible < pairs.length ? ' — scroll for more' : ''}.</p>}
     </>
   )
 }

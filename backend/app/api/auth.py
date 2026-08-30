@@ -1,6 +1,8 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import func, or_, select
+
+from .. import config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
@@ -40,8 +42,17 @@ async def create_user(body: UserIn, db: AsyncSession = Depends(get_session),
 
 
 @router.get("/users", response_model=list[UserOut])
-async def list_users(db: AsyncSession = Depends(get_session), _: User = Depends(require_super)):
-    return (await db.execute(select(User).order_by(User.email))).scalars().all()
+async def list_users(response: Response, db: AsyncSession = Depends(get_session),
+                     _: User = Depends(require_super),
+                     q: str = Query(default=""),
+                     limit: int = Query(default=config.PAGE_DEFAULT, le=config.PAGE_MAX),
+                     offset: int = Query(default=0, ge=0)):
+    stmt = select(User)
+    if q:
+        stmt = stmt.where(or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar()
+    response.headers["X-Total-Count"] = str(total)
+    return (await db.execute(stmt.order_by(User.email).limit(limit).offset(offset))).scalars().all()
 
 
 class DirectoryOut(BaseModel):
@@ -51,8 +62,17 @@ class DirectoryOut(BaseModel):
 
 
 @router.get("/users/directory", response_model=list[DirectoryOut])
-async def user_directory(db: AsyncSession = Depends(get_session),
-                         _: User = Depends(current_user)):
+async def user_directory(response: Response, db: AsyncSession = Depends(get_session),
+                         _: User = Depends(current_user),
+                         q: str = Query(default=""),
+                         limit: int = Query(default=20, le=config.PAGE_MAX),
+                         offset: int = Query(default=0, ge=0)):
     """Email + name only — lets product admins PICK members from existing
-    accounts instead of typing emails blind. No roles or ids exposed."""
-    return (await db.execute(select(User).order_by(User.email))).scalars().all()
+    accounts instead of typing emails blind. No roles or ids exposed.
+    Searched and paginated server-side so the picker scales to any org."""
+    stmt = select(User)
+    if q:
+        stmt = stmt.where(or_(User.email.ilike(f"%{q}%"), User.name.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar()
+    response.headers["X-Total-Count"] = str(total)
+    return (await db.execute(stmt.order_by(User.email).limit(limit).offset(offset))).scalars().all()

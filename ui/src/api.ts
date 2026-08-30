@@ -43,6 +43,21 @@ async function req<T>(method: string, path: string, body?: any): Promise<T> {
   return r.status === 204 ? (undefined as T) : r.json()
 }
 
+/* list fetch with the X-Total-Count pagination contract: response body stays
+   a plain array; the total rides in a header */
+async function paged<T>(path: string, params: Record<string, string | number | undefined>):
+    Promise<{ items: T[]; total: number }> {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(params ?? {}))
+    if (v !== undefined && v !== '') p.set(k, String(v))
+  const qs = p.toString()
+  const r = await fetch(BASE + path + (qs ? '?' + qs : ''), {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+  if (r.status === 401) { clearToken(); location.href = '/login' }
+  if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({})))?.detail)
+  return { items: await r.json(), total: Number(r.headers.get('X-Total-Count') ?? 0) }
+}
+
 export async function downloadExport(pk: string, scope: 'product' | 'all') {
   const r = await fetch(BASE + `/v1/products/${pk}/entities/reports/export?scope=${scope}`,
     { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
@@ -59,6 +74,12 @@ export const api = {
   login: (email: string, password: string) => req<{ access_token: string; user: User }>('POST', '/v1/auth/login', { email, password }),
   me: () => req<User>('GET', '/v1/auth/me'),
   users: () => req<User[]>('GET', '/v1/auth/users'),
+  usersPaged: (opts: { q?: string; limit?: number; offset?: number }) =>
+    paged<User>('/v1/auth/users', opts as any),
+  directoryPaged: (q: string, limit?: number) =>
+    paged<{ email: string; name: string }>('/v1/auth/users/directory', { q, limit }),
+  versionsPaged: (pk: string, id: string, opts: { limit?: number; offset?: number }) =>
+    paged<any>(`/v1/products/${pk}/entities/${id}/versions`, opts as any),
   directory: () => req<{ email: string; name: string }[]>('GET', '/v1/auth/users/directory'),
   createUser: (u: any) => req<User>('POST', '/v1/auth/users', u),
   products: () => req<Product[]>('GET', '/v1/products'),
@@ -78,15 +99,8 @@ export const api = {
   channel: (pk: string) => req<{ redis_url: string; channel_prefix: string }>('GET', `/v1/products/${pk}/channel`),
   setChannel: (pk: string, c: any) => req<void>('PUT', `/v1/products/${pk}/channel`, c),
   entities: (pk: string, type = '') => req<Entity[]>('GET', `/v1/products/${pk}/entities${type ? `?type=${type}` : ''}`),
-  entitiesPaged: async (pk: string, opts: { type?: string; q?: string; limit?: number; offset?: number }) => {
-    const p = new URLSearchParams()
-    if (opts.type) p.set('type', opts.type); if (opts.q) p.set('q', opts.q)
-    p.set('limit', String(opts.limit ?? 25)); p.set('offset', String(opts.offset ?? 0))
-    const r = await fetch(BASE + `/v1/products/${pk}/entities?` + p, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
-    if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({})))?.detail)
-    return { items: (await r.json()) as Entity[], total: Number(r.headers.get('X-Total-Count') ?? 0) }
-  },
+  entitiesPaged: (pk: string, opts: { type?: string; q?: string; limit?: number; offset?: number }) =>
+    paged<Entity>(`/v1/products/${pk}/entities`, opts as any),
   entity: (pk: string, id: string) => req<Entity>('GET', `/v1/products/${pk}/entities/${id}`),
   createEntity: (pk: string, e: any) => req<Entity>('POST', `/v1/products/${pk}/entities`, e),
   updateEntity: (pk: string, id: string, e: any) => req<Entity>('PUT', `/v1/products/${pk}/entities/${id}`, e),

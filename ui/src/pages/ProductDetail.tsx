@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
-import { ConfirmButton, OverlapPairs, ToolInfo, viewAud } from '../components'
+import { ConfirmButton, OverlapPairs, Sentinel, ToolInfo, viewAud } from '../components'
+import { PAGE_SIZE, PICKER_LIMIT, SEARCH_DEBOUNCE_MS } from '../config'
 
 export default function ProductDetail({ me }: { me: User | null }) {
   const { productKey = '' } = useParams()
@@ -78,21 +79,26 @@ export default function ProductDetail({ me }: { me: User | null }) {
   )
 }
 
-const PAGE = 25
+
 
 function Entities({ productKey, type, canEdit, overlapIds }: { productKey: string; type: string; canEdit: boolean; overlapIds?: Set<string> | null }) {
   const [items, setItems] = useState<Entity[]>([])
   const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(0)
   const [q, setQ] = useState('')
   const topRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState(false)
-  const load = () => api.entitiesPaged(productKey, { type, q, limit: PAGE, offset: page * PAGE })
-    .then(r => { setItems(r.items); setTotal(r.total); setLoaded(true) })
-  useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t) },
-    [productKey, type, q, page])
+  const loading = useRef(false)
+  const load = (offset: number) => {
+    loading.current = true
+    return api.entitiesPaged(productKey, { type, q, limit: PAGE_SIZE, offset })
+      .then(r => { setItems(prev => offset ? [...prev, ...r.items] : r.items); setTotal(r.total); setLoaded(true) })
+      .finally(() => { loading.current = false })
+  }
+  useEffect(() => { const t = setTimeout(() => load(0), q ? SEARCH_DEBOUNCE_MS : 0); return () => clearTimeout(t) },
+    [productKey, type, q])
+  const more = () => { if (!loading.current && items.length < total) load(items.length) }
   const remove = async (e: Entity) => {
-    await api.deleteEntity(productKey, e.id); toast(`Deleted ${e.name} — live servers updated`); load()
+    await api.deleteEntity(productKey, e.id); toast(`Deleted ${e.name} — live servers updated`); load(0)
   }
   return (
     <>
@@ -100,7 +106,7 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
       <div className="toolbar">
         <h2>{type === 'tool' ? 'Tools' : 'Agents'}</h2>
         <input className="searchbox" placeholder={`Search ${type}s…`} value={q}
-          onChange={e => { setQ(e.target.value); setPage(0) }} />
+          onChange={e => setQ(e.target.value)} />
 
         {type === 'tool' && <button className="small" title="Download this product's tools as Excel"
           onClick={() => downloadExport(productKey, 'product')}>⬇ Excel</button>}
@@ -138,10 +144,9 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
           {q ? `No ${type}s matching "${q}".` : 'Nothing here yet.'}</td></tr>}
         </tbody>
       </table>
-      {total > PAGE && <div className="pager">
-        <span>{page * PAGE + 1}–{Math.min((page + 1) * PAGE, total)} of {total}</span>
-        <button disabled={page === 0} onClick={() => { setPage(p => p - 1); topRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>‹ Prev</button>
-        <button disabled={(page + 1) * PAGE >= total} onClick={() => { setPage(p => p + 1); topRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>Next ›</button>
+      {items.length < total && <Sentinel onHit={more} />}
+      {total > PAGE_SIZE && <div className="pager">
+        <span>{items.length} of {total} loaded{items.length < total ? ' — scroll for more' : ''}</span>
       </div>}
     </div>
     </>
@@ -181,11 +186,13 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
   const [showAdd, setShowAdd] = useState(false)
   const [directory, setDirectory] = useState<{ email: string; name: string }[]>([])
   const [pickOpen, setPickOpen] = useState(false)
-  useEffect(() => { if (showAdd) api.directory().then(setDirectory).catch(() => {}) }, [showAdd])
-  const candidates = directory.filter(u =>
-    !members.some(m => m.email === u.email) &&
-    (!email || u.email.toLowerCase().includes(email.toLowerCase())
-      || u.name.toLowerCase().includes(email.toLowerCase())))
+  useEffect(() => {              // searched server-side: scales to any org size
+    if (!showAdd) return
+    const t = setTimeout(() => api.directoryPaged(email, PICKER_LIMIT + members.length)
+      .then(r => setDirectory(r.items)).catch(() => {}), email ? SEARCH_DEBOUNCE_MS : 0)
+    return () => clearTimeout(t)
+  }, [showAdd, email, members.length])
+  const candidates = directory.filter(u => !members.some(m => m.email === u.email))
   const load = () => api.members(productKey).then(setMembers)
   useEffect(() => { load() }, [productKey])
   const add = async (e: React.FormEvent) => {
@@ -210,7 +217,7 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
               onBlur={() => window.setTimeout(() => setPickOpen(false), 150)} />
             {pickOpen && candidates.length > 0 && (
               <div className="combo-list">
-                {candidates.slice(0, 8).map(u => (
+                {candidates.slice(0, PICKER_LIMIT).map(u => (
                   <div key={u.email} className="combo-item"
                     onMouseDown={() => { setEmail(u.email); setPickOpen(false) }}>
                     <b className="score">{u.email}</b>

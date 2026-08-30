@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import config
 from ..db import get_session
 from ..deps import require_member
 from ..models import Entity
@@ -46,10 +47,10 @@ async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
 # Heavy cross-encoder scoring is pure CPU work. Run it in a worker thread so
 # the event loop keeps serving every other request, and serialize the jobs so
 # concurrent previews cannot thrash the CPU against each other.
-_score_gate = asyncio.Semaphore(1)
+_score_gate = asyncio.Semaphore(config.SCORE_CONCURRENCY)
 _preview_cache: "dict[str, dict]" = {}
 _preview_inflight: "dict[str, asyncio.Future]" = {}
-_PREVIEW_CACHE_CAP = 256
+_PREVIEW_CACHE_CAP = config.PREVIEW_CACHE_CAP
 
 
 async def registry_tuning(db: AsyncSession) -> dict:
@@ -262,7 +263,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
         _preview_inflight.pop(cache_key, None)
 
 _resolve_cache: dict = {}
-_RESOLVE_CACHE_CAP = 64
+_RESOLVE_CACHE_CAP = config.RESOLVE_CACHE_CAP
 
 
 @router.get("/entities/{entity_id}/resolve/{other_id}")

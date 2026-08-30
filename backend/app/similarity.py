@@ -1,6 +1,7 @@
 """Hybrid semantic + lexical similarity with reciprocal-rank fusion.
 Brute-force cosine via numpy — exact and sub-ms at registry scale (<=100k rows).
 Swap for a pgvector VectorStore implementation without touching callers."""
+from . import config
 import os
 import re
 from typing import Dict, List, Optional
@@ -220,7 +221,7 @@ class FastEmbedReranker(Reranker):
     field changes, so most (query, candidate) pairs repeat — cache hits turn
     repeated similarity checks from seconds into milliseconds."""
 
-    _CACHE_CAP = 16384
+    _CACHE_CAP = config.PAIR_CACHE_CAP
 
     def __init__(self, model: str = "BAAI/bge-reranker-base"):
         from collections import OrderedDict

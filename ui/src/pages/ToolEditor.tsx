@@ -3,7 +3,8 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
-import { OverlapPairs, viewAud } from '../components'
+import { OverlapPairs, Sentinel, viewAud } from '../components'
+import { CHECK_BOUNDARY_MS, CHECK_MIDWORD_MS, PAGE_SIZE } from '../config'
 
 type Overlay = { enabled?: boolean; overrides?: any }
 type Matches = { matches: Similar[]; top_explain: any; threshold?: number; flagged_audience?: string | null
@@ -44,6 +45,7 @@ export default function ToolEditor() {
   const [errors, setErrors] = useState<ValidationErr[]>([])
   const [preview, setPreview] = useState<any>(null)
   const [versions, setVersions] = useState<any[]>([])
+  const [versionsTotal, setVersionsTotal] = useState(0)
   const [saved, setSaved] = useState('')
   const [version, setVersion] = useState(0)
   const [canEdit, setCanEdit] = useState(true)
@@ -55,6 +57,9 @@ export default function ToolEditor() {
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
   const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
+  const loadVersions = (offset = 0) => api.versionsPaged(productKey, entityId!, { limit: PAGE_SIZE, offset })
+    .then(r => { setVersions(prev => offset ? [...prev, ...r.items] : r.items); setVersionsTotal(r.total) })
+    .catch(() => {})
 
   const [loadErr, setLoadErr] = useState<number | null>(null)
   useEffect(() => {
@@ -79,7 +84,7 @@ export default function ToolEditor() {
               .map((p: any) => p.a.id === entityId ? p : { ...p, a: p.b, b: p.a }) }))
           .catch(() => {})                                    // same scan as the overlap pages
       }).catch(e => setLoadErr(e?.status ?? 500))
-      api.versions(productKey, entityId).then(setVersions).catch(() => {})
+      loadVersions(0)
     } else {
       const raw = localStorage.getItem(draftKey)
       if (raw) { const sp = JSON.parse(raw); setPayload(sp?.payload ?? sp) }
@@ -114,7 +119,7 @@ export default function ToolEditor() {
 
   // live similarity, two tiers so typing scales:
   //  1. CHEAP check (matches + % only) after the user finishes a word —
-  //     600ms on a word/sentence boundary, 1800ms mid-word
+  //     CHECK_BOUNDARY_MS on a word/sentence boundary, CHECK_MIDWORD_MS mid-word
   //  2. the expensive resolution packages are fetched separately (below),
   //     only when flagged and only once the draft has settled
   const prevTexts = useRef<string[]>([])
@@ -159,7 +164,7 @@ export default function ToolEditor() {
           suggestions: r.matches[0] && prev?.suggestions
             && r.matches[0].id === prev.matches[0]?.id ? prev.suggestions : r.suggestions })))
         .catch(() => {}).finally(() => setChecking(false))
-    }, boundary ? 600 : 1800)
+    }, boundary ? CHECK_BOUNDARY_MS : CHECK_MIDWORD_MS)
   }, [payload.name, payload.title, payload.description, payload.input_schema,
       JSON.stringify(payload.audiences ?? {}), productKey, tab])
 
@@ -236,7 +241,7 @@ export default function ToolEditor() {
           .catch(() => {})                                    // published -> tab updates now
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
-        api.versions(productKey, entityId!).then(setVersions)
+        loadVersions(0)
       }
     } catch (ex) {
       if (ex instanceof ApiError && ex.validationErrors.length) setErrors(ex.validationErrors)
@@ -305,7 +310,7 @@ export default function ToolEditor() {
         )}
         {!isNew && (
           <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
-            History{versions.length ? ` (${versions.length})` : ''}</button>
+            History{(versionsTotal || versions.length) ? ` (${versionsTotal || versions.length})` : ''}</button>
         )}
       </div>
       {tab === 'base' ? (
@@ -360,11 +365,13 @@ export default function ToolEditor() {
                     : canEdit && <button className="small" onClick={async () => {
                         const e = await api.rollback(productKey, entityId!, v.version)
                         setPayload(e.payload); setVersion(e.version)
-                        api.versions(productKey, entityId!).then(setVersions)
+                        loadVersions(0)
                         setSaved(`v${v.version} is now active (published as v${e.version}) — SDKs updated live.`)
                         toast(`v${v.version} is active again`)
                       }}>Make active</button>}</td></tr>
               ))}</tbody></table>
+          {versions.length < versionsTotal && <Sentinel onHit={() => loadVersions(versions.length)} />}
+          {versionsTotal > PAGE_SIZE && <p className="muted">{versions.length} of {versionsTotal} versions loaded{versions.length < versionsTotal ? ' — scroll for more' : ''}.</p>}
         </div>
       )}
     </>

@@ -89,6 +89,25 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
   bus and cache speak plain Redis protocol, so it is a URL change, no code.
   The API is stateless: scale horizontally behind a load balancer; move the
   in-process preview/report caches to Redis when running multiple replicas.
+- **Authorization model.** Three tiers, enforced server-side on every route:
+  super admins run the platform (products, people, channels, global settings);
+  product admins write within their product (tools, members, audiences, keys);
+  members read theirs. There is NO cross-product access — a product admin who
+  hits another product's URL gets a clean access-denied page, and cross-product
+  overlap fixes route through a copy-able handoff report instead of a door.
+  The registry-wide overlap report and the user directory are the only
+  any-authenticated surfaces: they exist precisely for cross-team coordination.
+- **Pagination contract.** Every list endpoint takes `limit`/`offset` (and `q`
+  where searchable — tools, users, directory); the body stays a plain array
+  and the total rides in the `X-Total-Count` header, so clients that ignore
+  paging keep working. The UI loads on scroll (IntersectionObserver sentinel)
+  — tools, versions, users, the member picker and overlap pairs all fetch
+  incrementally; nothing renders unbounded lists.
+- **No magic numbers.** Deployment knobs (pool sizes, cache caps, scoring
+  concurrency, page sizes) live in `app/config.py`, all `REGISTRY_*`
+  env-overridable; similarity behavior knobs live in `app/tuning.py` as
+  runtime data the super admin can change over the API; UI timing/paging
+  constants live in `ui/src/config.ts`.
 - **Error contract.** Validation errors are field-pinned (`path`, `code`,
   friendly `message`, rendered inline under the exact field); unexpected
   errors return a clean 500 with a logged server-side trace — stack traces

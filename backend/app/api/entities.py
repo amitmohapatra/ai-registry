@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import overlay as ov
+from .. import config
 from ..db import get_session
 from ..deps import current_user, require_member, require_product_admin
 from ..models import Entity, EntityVersion
@@ -46,7 +47,7 @@ async def create(body: EntityIn, ctx: tuple = Depends(require_product_admin),
 async def list_entities(response: Response, ctx: tuple = Depends(require_member),
                         db: AsyncSession = Depends(get_session),
                         type: str = Query(default=""), q: str = Query(default=""),
-                        limit: int = Query(default=100, le=500),
+                        limit: int = Query(default=config.PAGE_DEFAULT, le=config.PAGE_MAX),
                         offset: int = Query(default=0, ge=0)):
     """Paginated + searchable. Total count is returned in X-Total-Count so the
     response stays a plain array (stable contract for existing clients)."""
@@ -187,15 +188,24 @@ def _version_changes(prev: dict | None, cur: dict) -> str:
 
 
 @router.get("/{entity_id}/versions", response_model=list[VersionOut])
-async def versions(entity_id: str, ctx: tuple = Depends(require_member),
-                   db: AsyncSession = Depends(get_session)):
+async def versions(entity_id: str, response: Response, ctx: tuple = Depends(require_member),
+                   db: AsyncSession = Depends(get_session),
+                   limit: int = Query(default=config.PAGE_DEFAULT, le=config.PAGE_MAX),
+                   offset: int = Query(default=0, ge=0)):
+    from sqlalchemy import func
     product, _, _ = ctx
     await _get_entity(db, product.id, entity_id)
+    total = (await db.execute(select(func.count()).select_from(EntityVersion)
+                              .where(EntityVersion.entity_id == entity_id))).scalar()
+    response.headers["X-Total-Count"] = str(total)
+    # fetch one extra row past the page: it is the "previous version" the
+    # oldest row on this page diffs against
     rows = (await db.execute(select(EntityVersion).where(EntityVersion.entity_id == entity_id)
-                             .order_by(EntityVersion.version.desc()))).scalars().all()
+                             .order_by(EntityVersion.version.desc())
+                             .limit(limit + 1).offset(offset))).scalars().all()
     by_version = {r.version: r for r in rows}
     out = []
-    for r in rows:
+    for r in rows[:limit]:
         prev = by_version.get(r.version - 1)
         out.append({"version": r.version, "note": r.note, "author_id": r.author_id,
                     "created_at": r.created_at,
@@ -266,7 +276,7 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
 
 _report_cache: dict = {}
 _report_inflight: dict = {}
-_REPORT_CACHE_CAP = 16
+_REPORT_CACHE_CAP = config.REPORT_CACHE_CAP
 
 
 async def registry_overlap_report(db: AsyncSession) -> dict:

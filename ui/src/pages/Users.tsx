@@ -1,21 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, User } from '../api'
 import { errorText } from '../api'
+import { Sentinel } from '../components'
+import { PAGE_SIZE, SEARCH_DEBOUNCE_MS } from '../config'
 import { validatePassword } from '../validators'
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
+  const [total, setTotal] = useState(0)
+  const [q, setQ] = useState('')
   const [form, setForm] = useState({ email: '', name: '', password: '', is_super_admin: false })
   const [err, setErr] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const load = () => api.users().then(setUsers).catch(() => {})
-  useEffect(() => { load() }, [])
+  const loading = useRef(false)
+  const load = (offset = 0) => {
+    loading.current = true
+    return api.usersPaged({ q, limit: PAGE_SIZE, offset })
+      .then(r => { setUsers(prev => offset ? [...prev, ...r.items] : r.items); setTotal(r.total) })
+      .catch(() => {}).finally(() => { loading.current = false })
+  }
+  useEffect(() => { const t = setTimeout(() => load(0), q ? SEARCH_DEBOUNCE_MS : 0); return () => clearTimeout(t) }, [q])
+  const more = () => { if (!loading.current && users.length < total) load(users.length) }
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     const invalid = validatePassword(form.password)
     if (invalid) { setErr(invalid); return }
-    try { await api.createUser(form); setForm({ email: '', name: '', password: '', is_super_admin: false }); setShowCreate(false); load() }
+    try { await api.createUser(form); setForm({ email: '', name: '', password: '', is_super_admin: false }); setShowCreate(false); load(0) }
     catch (ex: any) { setErr(errorText(ex)) }
   }
 
@@ -26,6 +37,8 @@ export default function UsersPage() {
       <div className="card">
         <div className="toolbar">
           <h2>Users</h2>
+          <input className="searchbox" placeholder="Search users…" value={q}
+            onChange={e => setQ(e.target.value)} />
           <button className="primary small" onClick={() => { setShowCreate(v => !v); setErr('') }}>
             {showCreate ? 'Cancel' : '+ Create user'}</button>
         </div>
@@ -54,6 +67,8 @@ export default function UsersPage() {
           {users.length === 0 && <tr><td colSpan={3} className="muted">No users yet.</td></tr>}
           </tbody>
         </table>
+        {users.length < total && <Sentinel onHit={more} />}
+        {total > PAGE_SIZE && <div className="pager"><span>{users.length} of {total} loaded{users.length < total ? ' — scroll for more' : ''}</span></div>}
       </div>
     </>
   )
