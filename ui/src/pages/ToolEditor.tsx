@@ -263,11 +263,11 @@ export default function ToolEditor() {
         <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}
           title="The definition every caller gets — external is the base">external
           {baseDirty && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}</button>
-        {audiences.filter(a => a !== 'external').map(a => (
-          <button key={a} className={tab === a ? 'active' : ''} onClick={() => setTab(a)}>
-            {a}{payload.audiences?.[a] && Object.keys(payload.audiences[a]).length ? ' •' : ''}
-            {audDirty(a) && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}</button>
-        ))}
+        <button className={tab === 'internal' ? 'active' : ''} onClick={() => setTab('internal')}
+          title={audiences.includes('internal') ? undefined : 'Internal audience is not enabled for this product yet'}>
+          internal{audiences.includes('internal') && payload.audiences?.internal && Object.keys(payload.audiences.internal).length ? ' •' : ''}
+          {audiences.includes('internal') && audDirty('internal') && <span className="draft-mark" title="unsaved draft changes on this tab">✎</span>}
+        </button>
         {!isNew && (
           <button className={tab === 'similar' ? 'active' : ''} onClick={() => setTab('similar')}>
             Similar tools
@@ -288,6 +288,18 @@ export default function ToolEditor() {
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
+      ) : tab === 'internal' && !audiences.includes('internal') ? (
+        <div className="card">
+          <h2>Internal audience is not enabled for this product</h2>
+          <p className="muted">Enable it to give internal callers their own wording for this
+            product's tools (they inherit the external text until overridden).</p>
+          {canEdit && <button className="primary" onClick={async () => {
+            try {
+              await api.addAudience(productKey, { key: 'internal' })
+              setAudiences(a => [...a, 'internal']); toast('Internal audience enabled')
+            } catch (ex: any) { toast(String(ex.detail ?? 'Failed')) }
+          }}>Enable internal audience</button>}
+        </div>
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
           basePayload={payload} setOverlay={setOverlay} setTab={setTab}
@@ -473,6 +485,17 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           {owns && !matches.suggestions && (
             <div className="sugg-row" style={{ marginTop: 8 }}>
               <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
+            </div>
+          )}
+          {owns && matches.suggestions && !matches.suggestions.packages?.length && (
+            <div className="sugg-row" style={{ marginTop: 8, fontWeight: 400 }}>
+              No meaning-preserving rewrite reduces this pair — these two tools describe the same
+              action. Consider keeping one and removing the other
+              {matches.suggestions.template && (<>
+                , or state what genuinely differs:
+                <button className="icon-act" style={{ marginLeft: 6 }} title="Copy a description frame to fill in"
+                  onClick={() => { navigator.clipboard.writeText(matches.suggestions!.template!); toast('Template copied') }}>⧉</button>
+              </>)}.
             </div>
           )}
           {owns && matches.suggestions?.packages?.length ? (
