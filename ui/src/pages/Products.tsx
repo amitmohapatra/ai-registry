@@ -105,6 +105,8 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
             : <OverlapPairs report={overlaps}
                 explain={p => api.explainPair(p.a.product_key, p.a.id, p.b.id,
+                  viewAud(p.a.view), viewAud(p.b.view))}
+            resolve={p => api.resolvePair(p.a.product_key, p.a.id, p.b.id,
                   viewAud(p.a.view), viewAud(p.b.view))} />}
         </div>
       )}

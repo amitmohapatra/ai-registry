@@ -257,6 +257,85 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     finally:
         _preview_inflight.pop(cache_key, None)
 
+_resolve_cache: dict = {}
+_RESOLVE_CACHE_CAP = 64
+
+
+@router.get("/entities/{entity_id}/resolve/{other_id}")
+async def resolve_pair(entity_id: str, other_id: str,
+                       ctx: tuple = Depends(require_member),
+                       db: AsyncSession = Depends(get_session),
+                       aud_a: str = Query(default="", max_length=64),
+                       aud_b: str = Query(default="", max_length=64)):
+    """The ENGINE's recommendation for a pair — never canned text. Generates
+    meaning-preserving candidates for side A, worst-case-verifies them against
+    the registry; if A cannot move without changing meaning, tries side B
+    (whose wording may have drifted); if neither can, returns the fill-in
+    template. Identical machinery and numbers as the editor."""
+    import hashlib
+    _ = ctx
+    a = await db.get(Entity, entity_id)
+    b = await db.get(Entity, other_id)
+    if not a or a.is_deleted or not b or b.is_deleted:
+        raise HTTPException(404, "Entity not found")
+    from ..models import Product
+    prod_a = await db.get(Product, a.product_id)
+    prod_b = await db.get(Product, b.product_id)
+    tune = await registry_tuning(db)
+    threshold = await product_threshold(db)
+    cands = await _candidates(db, "")
+    by_id = {c["id"]: c["payload"] for c in cands}
+    taken = {c["name"] for c in cands}
+
+    def view(payload: dict, aud: str) -> dict:
+        ov = ((payload.get("audiences") or {}).get(aud) or {}).get("overrides") or {}
+        if not aud or not ov:
+            return payload
+        out = {**payload}
+        out.update({k: ov[k] for k in ("description", "title") if ov.get(k)})
+        return out
+
+    pa, pb = view(a.payload, aud_a), view(b.payload, aud_b)
+    key = hashlib.sha256(repr((a.id, a.version, b.id, b.version, aud_a, aud_b,
+                               threshold, sorted(tune.items()))).encode()).hexdigest()
+    hit = _resolve_cache.get(key)
+    if hit is not None:
+        return hit
+
+    vec_a = a.embedding
+
+    def _work():
+        from ..suggestions import build_suggestions
+        matches = rank(vec_a, embed_text_of(pa), cands,
+                       top_k=int(tune["candidate_top_k"]), exclude_id=a.id)
+        nearby = [by_id[m["id"]] for m in matches if m["id"] in by_id]
+        s1 = build_suggestions(pa, pb, prod_a.key if prod_a else "", taken,
+                               name_collision=True, threshold=threshold,
+                               others=[pb] + nearby, tune=tune)
+        if s1.get("packages"):
+            return {"side": "a", "tool": {"id": a.id, "name": a.name,
+                                          "product_key": prod_a.key if prod_a else ""},
+                    "packages": s1["packages"]}
+        s2 = build_suggestions(pb, pa, prod_b.key if prod_b else "", taken,
+                               name_collision=True, threshold=threshold,
+                               others=[pa] + nearby, tune=tune)
+        if s2.get("packages"):
+            return {"side": "b", "tool": {"id": b.id, "name": b.name,
+                                          "product_key": prod_b.key if prod_b else ""},
+                    "packages": s2["packages"]}
+        return {"side": None, "template": s1.get("template"),
+                "tool": {"id": a.id, "name": a.name,
+                         "product_key": prod_a.key if prod_a else ""}}
+
+    await db.close()
+    async with _score_gate:
+        out = await asyncio.to_thread(_work)
+    if len(_resolve_cache) >= _RESOLVE_CACHE_CAP:
+        _resolve_cache.pop(next(iter(_resolve_cache)))
+    _resolve_cache[key] = out
+    return out
+
+
 # ---------- pairwise explain (saved entities) ----------
 
 @router.get("/entities/{entity_id}/explain/{other_id}")

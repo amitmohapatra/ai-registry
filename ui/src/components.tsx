@@ -39,7 +39,6 @@ export function PairBreakdown({ ex }: { ex: any }) {
   const pct = (v: number) => `${Math.round(v * 100)}%`
   const order = ['description', 'parameters', 'name', 'title']
   const fields = order.filter(f => f in (ex.contributions ?? {}))
-  const sevClass = (s: string) => s === 'high' ? 'err' : s === 'medium' ? 'warn' : 'note'
   return (
     <div>
       {ex.contributions && (
@@ -60,8 +59,7 @@ export function PairBreakdown({ ex }: { ex: any }) {
       {ex.shared?.parameters?.length > 0 && <p className="muted" style={{ margin: '6px 0' }}>
         Common parameters: {ex.shared.parameters.map((t: string) =>
           <span key={t} className="param-op" style={{ marginRight: 4 }}>{t}</span>)}</p>}
-      {(ex.recommendations ?? []).map((r: any, i: number) => (
-        <div key={i} className={sevClass(r.severity)} style={{ margin: '6px 0' }}>{r.message}</div>))}
+
     </div>
   )
 }
@@ -135,22 +133,25 @@ export function ToolInfo({ payload, version, audiences }:
 
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
-export function OverlapPairs({ report, explain, cap = 50, showCross = true,
+export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = true,
   labels = ['Tool A', 'Tool B'] }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
+  resolve?: (p: any) => Promise<any>
   cap?: number
   showCross?: boolean
   labels?: [string, string]
 }) {
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<any>('idle')
+  const [fix, setFix] = useState<any>('idle')
   const pct = (x: number) => `${Math.round(x * 100)}%`
   const toggle = async (p: any) => {
     const k = p.a.id + p.b.id
-    if (open === k) { setOpen(''); setDetail('idle'); return }
-    setOpen(k); setDetail('loading')
+    if (open === k) { setOpen(''); setDetail('idle'); setFix('idle'); return }
+    setOpen(k); setDetail('loading'); setFix(resolve ? 'loading' : 'idle')
     setDetail(await explain(p).catch(() => 'error') ?? 'error')
+    if (resolve) setFix(await resolve(p).catch(() => 'error') ?? 'error')
   }
   const pairs = report?.pairs ?? []
   const shown = pairs.slice(0, cap)
@@ -183,6 +184,40 @@ export function OverlapPairs({ report, explain, cap = 50, showCross = true,
             {detail === 'loading' ? <span className="muted">Analyzing…</span>
               : detail === 'error' ? <span className="muted">Couldn't load this comparison.</span>
               : <PairBreakdown ex={detail} />}
+            {resolve && fix === 'loading' && (
+              <p className="muted" style={{ margin: '8px 0 0' }}>
+                <span className="rescore" style={{ margin: 0 }}><span className="spin" /> computing a verified resolution…</span></p>
+            )}
+            {resolve && fix && fix !== 'idle' && fix !== 'loading' && fix !== 'error' && (
+              fix.side ? (
+                <div style={{ marginTop: 8 }}>
+                  <b style={{ fontSize: 12.5 }}>Verified fix
+                    {fix.side === 'b' && <> — it lives on the other side</>}: {' '}
+                    <span className="score">{fix.tool.product_key}/{fix.tool.name}</span></b>
+                  {fix.packages.slice(0, 2).map((pk: any, i: number) => (
+                    <div key={i} className="pkg-row" style={{ padding: '6px 0' }}>
+                      <span className="pkg-num">{i + 1}</span>
+                      <b className="score">{pk.name}</b>
+                      <span className="muted">·</span>
+                      <span className="pkg-title" title={pk.description}>{pk.title}</span>
+                      <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
+                        <span className="delta ok">→ {Math.round(pk.new_overall * 100)}% ✓</span></span>
+                      <button className="icon-act" title="Copy this fix (name, title, description)"
+                        onClick={() => navigator.clipboard.writeText(
+                          `${pk.name}\n${pk.title}\n${pk.description}`)}>⧉</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted" style={{ margin: '8px 0 0' }}>
+                  No meaning-preserving rewrite separates this pair from either side — the two
+                  descriptions assert the same thing. Consolidate, or state the genuine
+                  difference{fix.template && <> (frame: <button className="icon-act"
+                    title="Copy a description frame to fill in"
+                    onClick={() => navigator.clipboard.writeText(fix.template)}>⧉</button>)</>}.
+                </p>
+              )
+            )}
           </td></tr>)
         return rows
       })}

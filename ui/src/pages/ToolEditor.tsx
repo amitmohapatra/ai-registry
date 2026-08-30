@@ -331,6 +331,8 @@ export default function ToolEditor() {
           <OverlapPairs report={savedReport} showCross={false}
             labels={['This tool', 'Overlaps with']}
             explain={p => api.explainPair(productKey, p.a.id, p.b.id,
+              viewAud(p.a.view), viewAud(p.b.view))}
+            resolve={p => api.resolvePair(productKey, p.a.id, p.b.id,
               viewAud(p.a.view), viewAud(p.b.view))} />
         </div>
       )}
