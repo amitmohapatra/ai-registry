@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api, clearToken, hasToken, Product, User } from './api'
 import Login from './pages/Login'
@@ -21,6 +21,23 @@ function Toaster() {
     return () => window.removeEventListener('app-toast', on)
   }, [])
   return <div className="toast-wrap">{msgs.map(m => <div key={m.id} className="toast">{m.text}</div>)}</div>
+}
+
+/** Any render error shows a recoverable card instead of a white screen. */
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err: Error | null }> {
+  state = { err: null as Error | null }
+  static getDerivedStateFromError(err: Error) { return { err } }
+  render() {
+    if (this.state.err) return (
+      <div className="card" style={{ margin: 40, maxWidth: 560 }}>
+        <h2>Something went wrong on this page</h2>
+        <p className="muted">{String(this.state.err)}</p>
+        <button className="primary" onClick={() => { this.setState({ err: null }); window.location.reload() }}>
+          Reload</button>
+      </div>
+    )
+    return this.props.children
+  }
 }
 
 export default function App() {
@@ -65,6 +82,7 @@ export default function App() {
       </nav>
       <Toaster />
       <main className="main">
+        <ErrorBoundary>
         <Routes>
           <Route path="/" element={<Products me={me} onCreated={refresh} />} />
           <Route path="/users" element={<UsersPage />} />
@@ -72,6 +90,7 @@ export default function App() {
           <Route path="/p/:productKey/tools/new" element={<ToolEditor />} />
           <Route path="/p/:productKey/tools/:entityId" element={<ToolEditor />} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   )

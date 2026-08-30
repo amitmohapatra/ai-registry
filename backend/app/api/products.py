@@ -68,6 +68,7 @@ async def delete_product(product: Product = Depends(get_product),
     await db.delete(product)          # cascades: entities+versions, audiences, memberships
     await db.commit()
     await audit(db, actor, "product.delete", key, pid)
+    __import__('app.api.entities', fromlist=['x']).schedule_report_warm()
 
 # ---- channel config (super admin sets each product's Redis) ----
 
@@ -148,6 +149,7 @@ async def add_audience(body: AudienceIn, ctx: tuple = Depends(require_product_ad
     db.add(aud)
     await db.commit()
     await audit(db, actor, "audience.create", body.key, product.id)
+    __import__('app.api.entities', fromlist=['x']).schedule_report_warm()
     return aud
 
 
@@ -186,6 +188,7 @@ async def delete_audience(aud_key: str, ctx: tuple = Depends(require_product_adm
     await next_seq(db, product)
     await db.commit()
     await audit(db, actor, "audience.delete", aud_key, product.id, {"stripped_from": stripped})
+    __import__('app.api.entities', fromlist=['x']).schedule_report_warm()
     await publish_change(db, product, "manifest.reload", {})
 
 

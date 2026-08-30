@@ -47,7 +47,23 @@ async def lifespan(app: FastAPI):
 
     import threading
     threading.Thread(target=_warm_models, daemon=True).start()
+
+    async def _warm_report():
+        # after models are warm, precompute the overlap report so the first
+        # page load (status dots, overlap tabs) is served from cache
+        await asyncio.sleep(3)
+        try:
+            from .api.entities import registry_overlap_report
+            from .db import session_factory
+            async with session_factory()() as db:
+                await registry_overlap_report(db)
+        except Exception:
+            pass
+
+    import asyncio
+    warm_task = asyncio.get_running_loop().create_task(_warm_report())
     yield
+    warm_task.cancel()
 
 
 _FIELD_NAMES = {"key": "Product key", "email": "Email", "password": "Password",

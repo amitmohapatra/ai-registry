@@ -37,6 +37,7 @@ async def create(body: EntityIn, ctx: tuple = Depends(require_product_admin),
     if errors:
         raise HTTPException(422, {"errors": errors})
     await audit(db, actor, "entity.create", name, product.id)
+    schedule_report_warm()          # precompute the overlap report
     return entity
 
 
@@ -127,6 +128,7 @@ async def update(entity_id: str, body: EntityPatch, ctx: tuple = Depends(require
     if errors:
         raise HTTPException(422, {"errors": errors})
     await audit(db, actor, "entity.update", entity.name, product.id)
+    schedule_report_warm()          # precompute the overlap report
     return entity
 
 
@@ -137,6 +139,7 @@ async def remove(entity_id: str, ctx: tuple = Depends(require_product_admin),
     entity = await _get_entity(db, product.id, entity_id)
     await delete_entity(db, product, entity, actor.id)
     await audit(db, actor, "entity.delete", entity.name, product.id)
+    schedule_report_warm()          # precompute the overlap report
 
 
 @router.post("/dry-run", response_model=DryRunOut)
@@ -212,6 +215,7 @@ async def rollback(entity_id: str, version: int, ctx: tuple = Depends(require_pr
     if errors:
         raise HTTPException(422, {"errors": errors})
     await audit(db, actor, "entity.rollback", entity.name, product.id, {"to_version": version})
+    schedule_report_warm()
     return entity
 
 # ---- similarity ----
@@ -257,94 +261,138 @@ async def similar(entity_id: str, ctx: tuple = Depends(require_member),
     return ranked
 
 
-async def _build_duplicates(db: AsyncSession, threshold: float,
-                            within_product_id: str = "",
-                            involving_key: str = "",
-                            audience: str = "all") -> dict:
-    """Shared report builder. within_product_id: both sides in that product.
-    involving_key: at least one side in that product. Neither: whole registry.
-    audience: 'all' scans base + every published override (worst drives,
-    labeled); a specific key scans exactly the view THAT audience gets."""
-    from sqlalchemy import distinct
-    from .ai import product_threshold
-    from .ai import _score_gate
-    from ..models import Audience
-    cands = await _candidates(db, within_product_id)
-    th = threshold or await product_threshold(db)
-    aud_q = select(distinct(Audience.key))
-    if within_product_id:
-        aud_q = aud_q.where(Audience.product_id == within_product_id)
-    audience_keys = sorted((await db.execute(aud_q)).scalars().all())
-    rows = (await db.execute(select(Audience.product_id, Audience.key))).all()
-    auds_of: dict = {}
-    for pid, key in rows:
-        auds_of.setdefault(pid, []).append(key)
+_report_cache: dict = {}
+_report_inflight: dict = {}
+_REPORT_CACHE_CAP = 16
 
-    # every PUBLISHED audience override is a real description served to models,
-    # so each variant competes in the scan; the worst variant of a pair drives.
-    # Variants get synthetic ids (id::audience); pairs collapse back afterwards.
-    expanded, need_vecs = [], []
-    for c in cands:
-        overlays = c["payload"].get("audiences") or {}
-        if audience != "all":
-            ov = overlays.get(audience) or {}
-            if ov.get("enabled") is False:
-                continue                           # tool hidden from this audience
-            o = ov.get("overrides") or {}
-            if o.get("description") or o.get("title"):
+
+async def registry_overlap_report(db: AsyncSession) -> dict:
+    """THE materialized overlap report: the full registry scan (all view
+    combinations), computed once per registry state and served from cache to
+    every surface. Invalidation is a version fingerprint — any entity save,
+    audience change or threshold change produces a new key, so stale data is
+    structurally impossible (no TTL to tune, nothing to expire)."""
+    import hashlib
+    import json as _json
+    from sqlalchemy import distinct
+    from .ai import product_threshold, _score_gate
+    from ..models import Audience
+
+    th = await product_threshold(db)
+    cands = await _candidates(db, "")
+    aud_rows = (await db.execute(select(Audience.product_id, Audience.key))).all()
+    auds_of: dict = {}
+    for pid, key in aud_rows:
+        auds_of.setdefault(pid, []).append(key)
+    audience_keys = sorted({k for _, k in aud_rows})
+
+    fp = hashlib.sha256(_json.dumps(
+        [sorted((c["id"], c.get("v")) for c in cands),
+         sorted(map(list, aud_rows)), th], default=str).encode()).hexdigest()
+    hit = _report_cache.get(fp)
+    if hit is not None:
+        return hit
+    inflight = _report_inflight.get(fp)
+    if inflight is not None:
+        return await asyncio.shield(inflight)
+    fut = asyncio.get_running_loop().create_future()
+    _report_inflight[fp] = fut
+
+    try:
+        expanded, need_vecs = [], []
+        for c in cands:
+            overlays = c["payload"].get("audiences") or {}
+            overridden, variants = [], []
+            for aud, ov in overlays.items():
+                o = (ov or {}).get("overrides") or {}
+                if (ov or {}).get("enabled") is False:
+                    continue
+                if not (o.get("description") or o.get("title")):
+                    continue
+                overridden.append(aud)
                 vp = {**c["payload"]}
                 vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
-                v = {**c, "payload": vp, "text": embed_text_of(vp), "vec": None}
-                expanded.append(v); need_vecs.append(v)
-            else:
-                expanded.append(c)                 # audience inherits the base view
-            continue
-        overridden = []
-        variants = []
-        for aud, ov in overlays.items():
-            o = (ov or {}).get("overrides") or {}
-            if (ov or {}).get("enabled") is False:
-                continue
-            if not (o.get("description") or o.get("title")):
-                continue
-            overridden.append(aud)
-            vp = {**c["payload"]}
-            vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
-            variants.append({**c, "id": f"{c['id']}::{aud}", "payload": vp,
-                             "text": embed_text_of(vp), "vec": None, "view": aud})
-        inheriting = [k for k in auds_of.get(c["product_id"], []) if k not in overridden]
-        base_view = "all" if not overridden else (", ".join(inheriting) or "base")
-        expanded.append({**c, "view": base_view})
-        expanded.extend(variants); need_vecs.extend(variants)
-    if need_vecs:
-        from ..services import embedder
-        vecs = await embedder().embed([v["text"] for v in need_vecs])
-        for v, vec in zip(need_vecs, vecs, strict=False):
-            v["vec"] = vec
+                variants.append({**c, "id": f"{c['id']}::{aud}", "payload": vp,
+                                 "text": embed_text_of(vp), "vec": None, "view": aud})
+            inheriting = [k for k in auds_of.get(c["product_id"], []) if k not in overridden]
+            base_view = "all" if not overridden else (", ".join(inheriting) or "base")
+            expanded.append({**c, "view": base_view})
+            expanded.extend(variants); need_vecs.extend(variants)
+        if need_vecs:
+            from ..services import embedder
+            vecs = await embedder().embed([v["text"] for v in need_vecs])
+            for v, vec in zip(need_vecs, vecs, strict=False):
+                v["vec"] = vec
 
-    def _scan():
-        # cosine casts a wide net (lower floor), the field-blend gives the final say
-        base = lambda x: x.split("::")[0]
-        pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
-        pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
-        pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
-        out = []
-        for p in pairs:                    # every view combination is a real row:
-            if p["score"] < th:            # an aggregator can put ANY view of A
-                continue                   # next to ANY view of B in one context
-            out.append({**p,
-                        "a": {**p["a"], "id": base(p["a"]["id"])},
-                        "b": {**p["b"], "id": base(p["b"]["id"])}})
-        return sorted(out, key=lambda p: -p["score"])
+        def _scan():
+            base = lambda x: x.split("::")[0]
+            pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
+            pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
+            pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
+            out = []
+            for p in pairs:                # every view combination is a real row:
+                if p["score"] < th:        # an aggregator can put ANY view of A
+                    continue               # next to ANY view of B in one context
+                out.append({**p,
+                            "a": {**p["a"], "id": base(p["a"]["id"])},
+                            "b": {**p["b"], "id": base(p["b"]["id"])}})
+            return sorted(out, key=lambda p: -p["score"])
 
-    await db.close()          # release the pooled connection during CPU work
-    async with _score_gate:                        # CPU work off the event loop
-        pairs = await asyncio.to_thread(_scan)
-    if involving_key:
+        await db.close()      # release the pooled connection during CPU work
+        async with _score_gate:                    # one heavy job at a time
+            pairs = await asyncio.to_thread(_scan)
+        report = {"threshold": th, "pairs": pairs, "audience": "all",
+                  "audience_keys": audience_keys}
+        if len(_report_cache) >= _REPORT_CACHE_CAP:
+            _report_cache.pop(next(iter(_report_cache)))
+        _report_cache[fp] = report
+        fut.set_result(report)
+        return report
+    except BaseException as exc:
+        if not fut.done():
+            fut.set_exception(exc)
+        raise
+    finally:
+        _report_inflight.pop(fp, None)
+
+
+def schedule_report_warm():
+    """Precompute on write: fire-and-forget rebuild of the materialized report
+    so the next page load is served from cache. Errors never surface — the
+    report also rebuilds lazily on demand."""
+    async def _run():
+        try:
+            from ..db import session_factory
+            async with session_factory()() as db:
+                await registry_overlap_report(db)
+        except Exception:
+            pass
+    try:
+        asyncio.get_running_loop().create_task(_run())
+    except RuntimeError:
+        pass
+
+
+async def _build_duplicates(db: AsyncSession, threshold: float,
+                            within_key: str = "",
+                            involving_key: str = "",
+                            cross_only: bool = False) -> dict:
+    """Every overlap surface derives from the ONE materialized registry report
+    by filtering — same rows, same numbers, no recomputation per page."""
+    report = await registry_overlap_report(db)
+    pairs = report["pairs"]
+    if threshold:                          # explicit override (API-only): refilter
+        pairs = [p for p in pairs if p["score"] >= threshold]
+    if within_key:
+        pairs = [p for p in pairs
+                 if p["a"]["product_key"] == within_key
+                 and p["b"]["product_key"] == within_key]
+    elif involving_key:
         pairs = [p for p in pairs
                  if involving_key in (p["a"]["product_key"], p["b"]["product_key"])]
-    return {"threshold": th, "pairs": pairs, "audience": audience,
-            "audience_keys": audience_keys}
+        if cross_only:
+            pairs = [p for p in pairs if p["cross_product"]]
+    return {**report, "threshold": threshold or report["threshold"], "pairs": pairs}
 
 
 @router.get("/reports/duplicates")
@@ -356,14 +404,11 @@ async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = De
     scope=cross: this product's tools vs OTHER products' tools only;
     scope=all: pairs involving this product (both of the above)."""
     product, _, _ = ctx
+    _ = audience                            # audience modes retired from the UI
     if scope == "product":
-        return await _build_duplicates(db, threshold, within_product_id=product.id,
-                                       audience=audience)
-    out = await _build_duplicates(db, threshold, involving_key=product.key,
-                                  audience=audience)
-    if scope == "cross":
-        out["pairs"] = [p for p in out["pairs"] if p["cross_product"]]
-    return out
+        return await _build_duplicates(db, threshold, within_key=product.key)
+    return await _build_duplicates(db, threshold, involving_key=product.key,
+                                   cross_only=(scope == "cross"))
 
 
 registry_reports = APIRouter(prefix="/v1/reports", tags=["entities"])
@@ -375,4 +420,5 @@ async def duplicates_all(db: AsyncSession = Depends(get_session),
                          audience: str = Query(default="all", max_length=64),
                          threshold: float = Query(default=0.0)):
     """Registry-wide overlaps — surfaced on the Products page."""
-    return await _build_duplicates(db, threshold, audience=audience)
+    _ = audience
+    return await _build_duplicates(db, threshold)
