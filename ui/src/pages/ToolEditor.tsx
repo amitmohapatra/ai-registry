@@ -87,10 +87,21 @@ export default function ToolEditor() {
   //     600ms on a word/sentence boundary, 1800ms mid-word
   //  2. the expensive resolution packages are fetched separately (below),
   //     only when flagged and only once the draft has settled
+  const prevTexts = useRef<string[]>([])
   useEffect(() => {
     window.clearTimeout(matchDebounce.current)
     if (!payload.name && !payload.description) return
-    const tail = String(payload.description ?? '').slice(-1)
+    // find the text the user is ACTUALLY editing (base or any audience
+    // override) so mid-word typing gets the long delay on every tab
+    const texts = [String(payload.description ?? ''), String(payload.title ?? ''),
+      ...Object.keys(payload.audiences ?? {}).sort().flatMap(k => {
+        const o = (payload.audiences?.[k]?.overrides ?? {}) as any
+        return [String(o.description ?? ''), String(o.title ?? '')]
+      })]
+    const changed = texts.find((x, i) => prevTexts.current.length > 0
+      && x !== prevTexts.current[i]) ?? String(payload.description ?? '')
+    prevTexts.current = texts
+    const tail = changed.slice(-1)
     const boundary = tail === '' || /[\s.,;:!?)]/.test(tail)
     matchDebounce.current = window.setTimeout(() => {
       setChecking(true)
