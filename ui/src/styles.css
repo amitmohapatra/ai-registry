@@ -368,3 +368,7 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
 .field-err .path { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 11px; }
 
 label .req { color: var(--danger); font-weight: 700; }
+
+/* second-level tabs inside Manage */
+.tabs.sub { margin: -6px 0 14px; }
+.tabs.sub button { font-size: 12.5px; padding: 7px 12px; }

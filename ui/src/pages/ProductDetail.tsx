@@ -10,6 +10,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
   const [tab, setTab] = useState('tools')
   const [dups, setDups] = useState<{ pairs: any[] } | null>(null)
   const [audBump, setAudBump] = useState(0)
+  const [manageTab, setManageTab] = useState('members')
   useEffect(() => { api.product(productKey).then(setProduct) }, [productKey])
   useEffect(() => {          // light background scan drives the overlap status dots
     setDups(null); api.duplicates(productKey, 'all').then(setDups).catch(() => {})
@@ -39,13 +40,21 @@ export default function ProductDetail({ me }: { me: User | null }) {
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
       {tab === 'overlaps' && <Duplicates productKey={productKey} />}
       {tab === 'manage' && <>
-        <Members productKey={productKey} canEdit={canEdit} />
-        <Audiences productKey={productKey} canEdit={canEdit}
-          onChanged={() => setAudBump(b => b + 1)} />
-        <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />
-        <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />
-        <Settings productKey={productKey} me={me} canEdit={canEdit} />
-        <Audit productKey={productKey} />
+        <div className="tabs sub">
+          {[['members', 'Members'], ['audiences', 'Audiences'], ['access', 'Audience access'],
+            ['keys', 'API keys & settings'], ['similarity', 'Similarity'], ['audit', 'Audit']]
+            .map(([k, label]) => (
+              <button key={k} className={manageTab === k ? 'active' : ''}
+                onClick={() => setManageTab(k)}>{label}</button>
+            ))}
+        </div>
+        {manageTab === 'members' && <Members productKey={productKey} canEdit={canEdit} />}
+        {manageTab === 'audiences' && <Audiences productKey={productKey} canEdit={canEdit}
+          onChanged={() => setAudBump(b => b + 1)} />}
+        {manageTab === 'access' && <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />}
+        {manageTab === 'similarity' && <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />}
+        {manageTab === 'keys' && <Settings productKey={productKey} me={me} canEdit={canEdit} />}
+        {manageTab === 'audit' && <Audit productKey={productKey} />}
       </>}
     </>
   )
@@ -149,16 +158,32 @@ function Duplicates({ productKey }: { productKey: string }) {
 function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean }) {
   const [members, setMembers] = useState<Member[]>([])
   const [email, setEmail] = useState(''); const [role, setRole] = useState('user'); const [err, setErr] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
   const load = () => api.members(productKey).then(setMembers)
   useEffect(() => { load() }, [productKey])
   const add = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
-    try { await api.upsertMember(productKey, { email, role }); setEmail(''); load() }
+    try { await api.upsertMember(productKey, { email, role }); setEmail(''); setShowAdd(false); load() }
     catch (ex: any) { setErr(String(ex.detail ?? 'Failed')) }
   }
   return (
     <div className="card">
-      <h2>Members</h2>
+      <div className="toolbar">
+        <h2>Members</h2>
+        {canEdit && <button className="primary small" onClick={() => { setShowAdd(v => !v); setErr('') }}>
+          {showAdd ? 'Cancel' : '+ Add member'}</button>}
+      </div>
+      {showAdd && canEdit && (
+        <form className="onboard-row" onSubmit={add}>
+          <input autoFocus style={{ flex: 2 }} placeholder="person@company.com" value={email} onChange={e => setEmail(e.target.value)} />
+          <select style={{ flex: 1 }} value={role} onChange={e => setRole(e.target.value)}>
+            <option value="user">user (read-only)</option>
+            <option value="admin">admin (can edit tools)</option>
+          </select>
+          <button className="primary">Add / update</button>
+          {err && <div className="field-err" style={{ flexBasis: '100%' }}>{err}</div>}
+        </form>
+      )}
       <table>
         <thead><tr><th>Email</th><th>Name</th><th>Role</th><th /></tr></thead>
         <tbody>{members.map(m => (
@@ -170,17 +195,6 @@ function Members({ productKey, canEdit }: { productKey: string; canEdit: boolean
               }} />}</td></tr>
         ))}</tbody>
       </table>
-      {canEdit && (
-        <form className="row" style={{ marginTop: 14 }} onSubmit={add}>
-          <input style={{ flex: 2 }} placeholder="person@company.com" value={email} onChange={e => setEmail(e.target.value)} />
-          <select style={{ flex: 1 }} value={role} onChange={e => setRole(e.target.value)}>
-            <option value="user">user (read-only)</option>
-            <option value="admin">admin (can edit tools)</option>
-          </select>
-          <button className="primary">Add / update</button>
-          {err && <div className="err" style={{ width: '100%' }}>{err}</div>}
-        </form>
-      )}
     </div>
   )
 }
@@ -317,6 +331,7 @@ function AudienceAccess({ productKey, canEdit, refresh = 0 }:
   { productKey: string; canEdit: boolean; refresh?: number }) {
   const [entities, setEntities] = useState<Entity[] | null>(null)
   const [audiences, setAudiences] = useState<Audience[]>([])
+  const [q, setQ] = useState('')
   const load = () => {
     api.entities(productKey).then(setEntities)
     api.audiences(productKey).then(setAudiences)
@@ -331,9 +346,13 @@ function AudienceAccess({ productKey, canEdit, refresh = 0 }:
     toast(`${e.name}: ${aud} ${on ? 'enabled' : 'disabled'} — live servers updated`)
     load()
   }
+  const visible = (entities ?? []).filter(e => !q || e.name.toLowerCase().includes(q.toLowerCase()))
   return (
     <div className="card">
-      <h2>Audience access</h2>
+      <div className="toolbar">
+        <h2>Audience access</h2>
+        <input className="searchbox" placeholder="Search tools…" value={q} onChange={e => setQ(e.target.value)} />
+      </div>
       {entities === null && <p className="muted">Loading…</p>}
       {entities !== null && entities.length === 0 && <p className="muted">No tools yet.</p>}
       {entities !== null && entities.length > 0 && <>
@@ -343,7 +362,7 @@ function AudienceAccess({ productKey, canEdit, refresh = 0 }:
       <table>
         <thead><tr><th>Tool</th>{audiences.map(a =>
           <th key={a.id} style={{ textAlign: 'center' }}>{a.key}{a.is_default ? ' *' : ''}</th>)}</tr></thead>
-        <tbody>{(entities ?? []).map(e => (
+        <tbody>{visible.map(e => (
           <tr key={e.id}>
             <td><b className="score">{e.name}</b> <span className="muted">v{e.version}</span></td>
             {audiences.map(a => (
