@@ -393,3 +393,8 @@ label .req { color: var(--danger); font-weight: 700; }
   margin-right: 4px; box-shadow: none; }
 .pill-btn.on { background: var(--accent-tonal); color: var(--accent-tonal-text);
   border-color: transparent; }
+
+/* invisible bridge over the gap between the i-badge and its popcard, so the
+   pointer can travel into the card without triggering a close */
+.popcard::before { content: ''; position: absolute; left: -14px; top: -6px;
+  width: 18px; height: calc(100% + 12px); }

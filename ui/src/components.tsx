@@ -75,15 +75,20 @@ export function ToolInfo({ payload, version, audiences }:
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<'external' | 'internal'>('external')
   const [copied, setCopied] = useState(false)
+  const closeTimer = useRef<number>()
+  const openNow = () => { window.clearTimeout(closeTimer.current); setOpen(true) }
+  const closeSoon = () => {
+    window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => setOpen(false), 250)
+  }
   const props: [string, any][] = Object.entries(payload?.input_schema?.properties ?? {})
   const req = new Set<string>(payload?.input_schema?.required ?? [])
   const internalDesc = payload?.audiences?.internal?.overrides?.description
   const shownDesc = view === 'internal' ? (internalDesc ?? payload?.description) : payload?.description
   return (
-    <span className="info-wrap" onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}>
+    <span className="info-wrap" onMouseEnter={openNow} onMouseLeave={closeSoon}>
       <button className="info-btn" aria-label={`Details for ${payload?.name}`}
-        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}>i</button>
+        onFocus={openNow} onBlur={closeSoon}>i</button>
       {open && (
         <div className="popcard" role="dialog" aria-label={`${payload?.name} details`}>
           <div className="popcard-head">
