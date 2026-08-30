@@ -152,7 +152,7 @@ function Duplicates({ productKey }: { productKey: string }) {
           </select>
         </div>
       </div>
-      <OverlapPairs report={report} showCross={false}
+      <OverlapPairs report={report} showCross={false} productKey={productKey}
         explain={p => api.explainPair(productKey, p.a.id, p.b.id,
           viewAud(p.a.view), viewAud(p.b.view))}
         resolve={p => api.resolvePair(productKey, p.a.id, p.b.id,

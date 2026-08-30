@@ -136,14 +136,15 @@ export function ToolInfo({ payload, version, audiences }:
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
 export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = true,
-  labels = ['Tool A', 'Tool B'] }: {
+  labels = ['Tool A', 'Tool B'], productKey }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
   resolve?: (p: any) => Promise<any>
   cap?: number
   showCross?: boolean
   labels?: [string, string]
-}) {
+  productKey?: string          // the product page this table sits on, if any —
+}) {                           // banner wording is relative to the VIEWER
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<any>('idle')
   const [fix, setFix] = useState<any>('idle')
@@ -201,11 +202,34 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
             {resolve && fix && fix !== 'idle' && fix !== 'loading' && fix !== 'error' && (
               fix.side ? (
                 <div style={{ marginTop: 8 }}>
-                  {fix.side === 'b' ? (
+                  {fix.tool.product_key === productKey ? (
+                    <div className="handoff">
+                      <span className="dot green" style={{ marginTop: 2 }} />
+                      <span style={{ flex: 1 }}>
+                        <b>You can fix this here</b> — the verified fix is on this
+                        product's <b className="score">{fix.tool.name}</b>.
+                      </span>
+                      {(otherRole === 'admin' || otherRole === 'super_admin') ? (
+                        <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
+                          <button className="primary small">Open {fix.tool.name} →</button>
+                        </RouterLink>
+                      ) : (
+                        <button className="small" title="You don't have edit access — copy a report (with the verified fix) for this product's admin"
+                          onClick={() => { navigator.clipboard.writeText(
+                            `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
+                            `${fix.tool.name}'s wording collides with another product's tool. ` +
+                            `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
+                            `description: "${fix.packages[0].description}" ` +
+                            `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
+                            `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`) }}>
+                          ⧉ Copy handoff report</button>
+                      )}
+                    </div>
+                  ) : fix.side === 'b' || (productKey && fix.tool.product_key !== productKey) ? (
                     <div className="handoff">
                       <span className="dot red" style={{ marginTop: 2 }} />
                       <span style={{ flex: 1 }}>
-                        <b>This fix belongs to another product:</b>{' '}
+                        <b>{productKey ? 'This fix belongs to another product:' : 'The verified fix is on:'}</b>{' '}
                         <span className="pill aud">{fix.tool.product_key}</span> — apply it on{' '}
                         <b className="score">{fix.tool.name}</b>.
                       </span>
