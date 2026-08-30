@@ -363,3 +363,6 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
   border-radius: 12px 12px 0 0; padding: 10px 16px; max-height: 260px; overflow: auto;
   box-shadow: 0 -2px 12px rgba(60,64,67,.08); }
 .draft-bar-panel + .draft-bar-row { border-radius: 0 0 12px 12px; }
+
+.field-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
+.field-err .path { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 11px; }

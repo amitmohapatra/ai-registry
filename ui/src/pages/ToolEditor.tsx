@@ -259,11 +259,6 @@ export default function ToolEditor() {
           while this draft existed — someone else edited this tool. Review your ✎ changes before
           publishing (your draft would replace theirs), or discard the draft to take their version.</div>
       )}
-      {errors.length > 0 && (
-        <div className="err">{errors.map((e, i) => (
-          <div key={i}><span className="path">{e.path || 'payload'}</span> — {e.message}</div>
-        ))}</div>
-      )}
       <div className="tabs">
         <button className={tab === 'base' ? 'active' : ''} onClick={() => setTab('base')}
           title="The definition every caller gets — external is the base">external
@@ -297,7 +292,7 @@ export default function ToolEditor() {
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
           basePayload={payload} setOverlay={setOverlay} setTab={setTab}
           savedPayload={savedPayload} discardSection={discardSection} prevTop={publishedPrevFor(tab)}
-          matches={matches} checking={checking} set={set} />
+          errors={errors} matches={matches} checking={checking} set={set} />
       ) : null}
 
       {tab === 'similar' && !isNew && (
@@ -529,6 +524,10 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
 
 /* ---------- base form ---------- */
 function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, savedPayload, discardSection, prevTop }: any) {
+  const errFor = (frag: string) => (errors ?? []).filter((e: ValidationErr) =>
+    e.path.includes(frag) && !e.path.includes('audiences'))
+  const restErrors = (errors ?? []).filter((e: ValidationErr) =>
+    !['name', 'title', 'description'].some(f => e.path.includes(f)) && !e.path.includes('audiences'))
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
@@ -537,13 +536,24 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
     <div className="card">
       {!isNew && <SectionDraftBanner section="base" draft={payload} published={savedPayload}
         discard={discardSection} />}
-      <label>Tool name * {isNew ? '' : '(rename carefully — handlers bind by name)'}</label>
+      <label>Tool name *</label>
       <input value={payload.name} onChange={e => set({ name: e.target.value })} placeholder="get_invoice" />
+      {payload.name && !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(payload.name) ? (
+        <div className="field-err">Use letters, numbers, _ or – only — no spaces; start with a letter.</div>
+      ) : errFor('name').map((e: ValidationErr, i: number) =>
+        <div key={i} className="field-err">{e.message}</div>)}
       <label>Title</label>
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
+      {errFor('title').map((e: ValidationErr, i: number) =>
+        <div key={i} className="field-err">{e.message}</div>)}
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
+      {errFor('description').map((e: ValidationErr, i: number) =>
+        <div key={i} className="field-err">{e.message}</div>)}
       <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} prevTop={prevTop} />
+      {restErrors.map((e: ValidationErr, i: number) =>
+        <div key={i} className="field-err" style={{ marginTop: 8 }}>
+          <span className="path">{e.path || 'payload'}</span> — {e.message}</div>)}
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -606,7 +616,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set, savedPayload, discardSection, prevTop }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set, savedPayload, discardSection, prevTop, errors }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -626,6 +636,8 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, 
         <textarea value={ov.description ?? basePayload.description ?? ''}
           placeholder={basePayload.description}
           onChange={e => setOv({ description: e.target.value })} />
+        {(errors ?? []).filter((e: ValidationErr) => e.path.includes(`audiences/${aud}`))
+          .map((e: ValidationErr, i: number) => <div key={i} className="field-err">{e.message}</div>)}
         {('description' in ov) && (
           <button className="small" style={{ marginTop: 4 }} onClick={() =>
             setOverlay(aud, (o: Overlay) => {
