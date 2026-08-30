@@ -269,7 +269,7 @@ export default function ToolEditor() {
           preview={preview} previewTab="base" errors={errors} />
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
-          basePayload={payload} setOverlay={setOverlay}
+          basePayload={payload} setOverlay={setOverlay} setTab={setTab}
           sectionDirty={audDirty(tab)} discardSection={discardSection} savedPayload={savedPayload}
           matches={matches} checking={checking} set={set} />
       ) : null}
@@ -559,7 +559,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set, sectionDirty, discardSection, savedPayload }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set, sectionDirty, discardSection, savedPayload }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -585,7 +585,23 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
             })}>Reset to external description</button>
         )}
-        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
+        {('description' in ov) ? (
+          <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
+        ) : (() => {
+          const th = matches?.threshold ?? 0.5
+          const top = matches?.matches?.[0]
+          return (
+            <p className="muted" style={{ margin: '8px 0 0' }}>
+              {aud} is served the external description as-is.
+              {checking && <span className="rescore" style={{ marginLeft: 8 }}><span className="spin" /> rechecking…</span>}
+              {!checking && top && top.score >= th && (
+                <> Note: that text currently collides at <b>{Math.round(top.score * 100)}%</b> with{' '}
+                  <b className="score">{top.product_key}/{top.name}</b> —{' '}
+                  <button className="small" onClick={() => setTab?.('base')}>fix it on the external tab</button></>
+              )}
+            </p>
+          )
+        })()}
         <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the external tab —
           internal differs only in wording, never in schema.</p>
       </>)}
