@@ -97,7 +97,7 @@ export const api = {
   duplicates: (pk: string, scope: string, audience = 'all', threshold?: number) => req<{ threshold: number; pairs: any[]; audience: string; audience_keys: string[] }>('GET', `/v1/products/${pk}/entities/reports/duplicates?scope=${scope}&audience=${encodeURIComponent(audience)}${threshold ? `&threshold=${threshold}` : ''}`),
   audit: (pk: string) => req<any[]>('GET', `/v1/products/${pk}/audit`),
   similarPreview: (pk: string, draft: any) => req<{ matches: Similar[]; top_explain: any; threshold?: number; suggestions?: { names: { name: string; title: string; new_overall: number | null }[]; titles: { title: string; new_overall: number | null }[]; descriptions: { text: string; new_overall: number | null; keeps_content?: boolean }[]; bundle?: { name: string; title: string; description: string; new_overall: number } | null; template?: string | null; current_name_match?: number; description_tip?: string | null; resolution_hint?: string | null } | null }>('POST', `/v1/products/${pk}/entities/similar-preview`, draft),
-  explainPair: (pk: string, id: string, otherId: string) => req<any>('GET', `/v1/products/${pk}/entities/${id}/explain/${otherId}`),
+  explainPair: (pk: string, id: string, otherId: string, audA = '', audB = '') => req<any>('GET', `/v1/products/${pk}/entities/${id}/explain/${otherId}?aud_a=${encodeURIComponent(audA)}&aud_b=${encodeURIComponent(audB)}`),
   settingsGet: (pk: string) => req<{ similarity_threshold: number }>('GET', `/v1/products/${pk}/settings`),
   settingsSet: (pk: string, s: any) => req<void>('PUT', `/v1/products/${pk}/settings`, s),
 }

@@ -140,7 +140,8 @@ function Duplicates({ productKey }: { productKey: string }) {
         </div>
       </div>
       <OverlapPairs report={report} showCross={false}
-        explain={p => api.explainPair(productKey, p.a.id, p.b.id)} />
+        explain={p => api.explainPair(productKey, p.a.id, p.b.id,
+          p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />
     </div>
   )
 }

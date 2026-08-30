@@ -3,7 +3,7 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,11 +199,25 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
 
 @router.get("/entities/{entity_id}/explain/{other_id}")
 async def explain(entity_id: str, other_id: str, ctx: tuple = Depends(require_member),
-                  db: AsyncSession = Depends(get_session)):
+                  db: AsyncSession = Depends(get_session),
+                  aud_a: str = Query(default="", max_length=64),
+                  aud_b: str = Query(default="", max_length=64)):
+    """aud_a / aud_b select which VIEW of each side to explain — the breakdown
+    must describe the same texts the overlap row scored, or the numbers lie."""
     _ = ctx                                        # membership on the current product
     a = await db.get(Entity, entity_id)            # either side may live in another
     b = await db.get(Entity, other_id)             # product (cross-product reports)
     if not a or a.is_deleted or not b or b.is_deleted:
         raise HTTPException(404, "Entity not found")
+
+    def view(payload: dict, aud: str) -> dict:
+        ov = ((payload.get("audiences") or {}).get(aud) or {}).get("overrides") or {}
+        if not aud or not ov:
+            return payload
+        out = {**payload}
+        out.update({k: ov[k] for k in ("description", "title") if ov.get(k)})
+        return out
+
+    pa, pb = view(a.payload, aud_a), view(b.payload, aud_b)
     return {"a": {"id": a.id, "name": a.name}, "b": {"id": b.id, "name": b.name},
-            **explain_pair(a.payload, b.payload)}
+            **explain_pair(pa, pb)}
