@@ -40,20 +40,24 @@ export default function ProductDetail({ me }: { me: User | null }) {
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
       {tab === 'overlaps' && <Duplicates productKey={productKey} />}
       {tab === 'manage' && <>
-        <div className="tabs sub">
-          {[['members', 'Members'], ['audiences', 'Audiences'], ['access', 'Audience access'],
-            ['keys', 'API keys & settings'], ['similarity', 'Similarity'], ['audit', 'Audit']]
+        <div className="seg">
+          {[['members', 'Members'], ['audiences', 'Audiences'],
+            ['settings', 'Settings'], ['audit', 'Audit']]
             .map(([k, label]) => (
               <button key={k} className={manageTab === k ? 'active' : ''}
                 onClick={() => setManageTab(k)}>{label}</button>
             ))}
         </div>
         {manageTab === 'members' && <Members productKey={productKey} canEdit={canEdit} />}
-        {manageTab === 'audiences' && <Audiences productKey={productKey} canEdit={canEdit}
-          onChanged={() => setAudBump(b => b + 1)} />}
-        {manageTab === 'access' && <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />}
-        {manageTab === 'similarity' && <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />}
-        {manageTab === 'keys' && <Settings productKey={productKey} me={me} canEdit={canEdit} />}
+        {manageTab === 'audiences' && <>
+          <Audiences productKey={productKey} canEdit={canEdit}
+            onChanged={() => setAudBump(b => b + 1)} />
+          <AudienceAccess productKey={productKey} canEdit={canEdit} refresh={audBump} />
+        </>}
+        {manageTab === 'settings' && <>
+          <Settings productKey={productKey} me={me} canEdit={canEdit} />
+          <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />
+        </>}
         {manageTab === 'audit' && <Audit productKey={productKey} />}
       </>}
     </>
