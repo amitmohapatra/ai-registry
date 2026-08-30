@@ -1,4 +1,5 @@
 """App factory + bootstrap. `uvicorn app.main:app` to run."""
+import contextlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -54,10 +55,8 @@ async def _fold_legacy_external_text():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await bootstrap()
-    try:
+    with contextlib.suppress(Exception):
         await _fold_legacy_external_text()
-    except Exception:
-        pass
 
     def _warm_models():
         # load + JIT the scoring models off the event loop so the first
@@ -141,6 +140,17 @@ def create_app() -> FastAPI:
 
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request, exc):
+        # never leak stack traces to clients; log server-side, answer cleanly
+        import logging
+        logging.getLogger("app").exception("unhandled error on %s %s",
+                                           request.method, request.url.path)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=500, content={
+            "detail": "Something went wrong on our side. The error has been logged — "
+                      "please retry; if it persists, contact your registry admin."})
 
     @app.exception_handler(RequestValidationError)
     async def humane_validation_errors(request, exc: RequestValidationError):

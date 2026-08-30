@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
@@ -276,7 +277,6 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
     structurally impossible (no TTL to tune, nothing to expire)."""
     import hashlib
     import json as _json
-    from sqlalchemy import distinct
     from .ai import product_threshold, _score_gate
     from ..models import Audience
 
@@ -319,7 +319,8 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
             inheriting = [k for k in auds_of.get(c["product_id"], []) if k not in overridden]
             base_view = "all" if not overridden else (", ".join(inheriting) or "base")
             expanded.append({**c, "view": base_view})
-            expanded.extend(variants); need_vecs.extend(variants)
+            expanded.extend(variants)
+            need_vecs.extend(variants)
         if need_vecs:
             from ..services import embedder
             vecs = await embedder().embed([v["text"] for v in need_vecs])
@@ -327,7 +328,8 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
                 v["vec"] = vec
 
         def _scan():
-            base = lambda x: x.split("::")[0]
+            def base(x: str) -> str:
+                return x.split("::")[0]
             pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
             pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
             pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
@@ -369,10 +371,8 @@ def schedule_report_warm():
                 await registry_overlap_report(db)
         except Exception:
             pass
-    try:
+    with contextlib.suppress(RuntimeError):   # no running loop (e.g. sync tests)
         asyncio.get_running_loop().create_task(_run())
-    except RuntimeError:
-        pass
 
 
 async def _build_duplicates(db: AsyncSession, threshold: float,

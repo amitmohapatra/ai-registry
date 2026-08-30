@@ -160,12 +160,12 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             EITHER side of the pair."""
             if not neural:
                 return apply_rerank(drafts[0][1], [dict(m) for m in matches], by_id), None
-            out, worst_draft_view = [], None
-            best_top = -1.0
+            out = []
             for m in matches:
                 other = by_id.get(m["id"])
                 if other is None:
-                    out.append(dict(m)); continue
+                    out.append(dict(m))
+                    continue
                 best = None
                 for d_view, d_pl in drafts:
                     for o_view, o_pl in _views_of(other):

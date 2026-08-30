@@ -26,7 +26,7 @@ _STOP = {"a", "an", "the", "by", "for", "of", "to", "in", "on", "with", "and", "
          "been", "were", "more", "most", "other", "another", "such", "like", "well",
          "just", "first", "right", "there", "here", "what", "whether", "before",
          "after", "while", "during", "does", "unknown", "linked", "applied",
-         "they", "were", "when", "one", "also"}
+         "they", "one"}
 
 
 def humanize(name: str) -> str:
@@ -61,7 +61,7 @@ def _distinct_tokens(draft: dict, other: dict) -> List[str]:
         return by_salience
     try:
         sims = rr.score_pairs(desc_text_of(other), by_salience)
-        return [t for _, t in sorted(zip(sims, by_salience), key=lambda x: x[0])]
+        return [t for _, t in sorted(zip(sims, by_salience, strict=False), key=lambda x: x[0])]
     except Exception:
         return by_salience
 
@@ -363,7 +363,8 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
         seen, uniq = set(), []
         for p in packages:                      # one package per name; must IMPROVE
             if p["name"] not in seen and p["new_overall"] < round(current_overall, 2):
-                uniq.append(p); seen.add(p["name"])
+                uniq.append(p)
+                seen.add(p["name"])
         packages = uniq[:int(t["packages_max"])]
         if not packages and descriptions:       # keep name/title, fix the description
             cur_title = draft.get("title") or humanize(draft.get("name", ""))

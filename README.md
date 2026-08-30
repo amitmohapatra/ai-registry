@@ -45,12 +45,14 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
   Postgres/SQLite. The same publish that notifies SDKs invalidates the cache.
 - **Sequence-numbered events.** Gap detected → full re-fetch. Convergence is
   guaranteed, not hoped for. See `contracts/event.schema.json`.
-- **Audiences (external / internal / …).** Base ⊕ overlay resolved at write
-  time in ONE place (the registry). Overlays: override description/title/
-  annotations, `add` / `modify` / `hide+pin` parameters, or disable per
-  audience. The `x-tool-audience` header *requests*; the caller's
-  `audience:<key>` scope *grants*; everyone else is downgraded to the default.
-  Pinned values are injected server-side and always beat caller arguments.
+- **Two audiences: external (the definition) and internal (a wording overlay).**
+  External IS the base: the editor's first tab writes the canonical fields, and
+  internal inherits them until its description is overridden. External text
+  overrides no longer exist (folded into base by a one-time migration and on
+  every write); external **parameter** ops (`add` / `modify` / `hide+pin`)
+  remain an API/SDK capability — pinned values are injected server-side and
+  always beat caller arguments. The `x-tool-audience` header *requests*; the
+  caller's `audience:<key>` scope *grants*; everyone else gets external.
 - **Validation pipeline.** Shape → semantic checks on the resolved result →
   atomic commit → publish. Field-level errors (`path`, `code`, `message`) pin
   to exact UI rows; the UI live preview calls the same dry-run code path.
@@ -60,12 +62,37 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
   Loosening requires the explicit `NoAuth()` provider. Per-tool
   `auth.required_scopes` live in the registry and are enforced by the SDK;
   an optional `@server.authorize` hook adds code-level checks.
-- **Similarity.** Hybrid embedding + lexical rank with RRF; local hashing
-  embedder by default, pluggable (fastembed / any OpenAI-compatible API via
-  `REGISTRY_EMBEDDING_PROVIDER`, `REGISTRY_EMBEDDING_API_KEY`). Duplicates
-  report within and across products.
+- **Similarity: per-view, verified, precomputed.** Retrieval = hybrid
+  embedding + lexical rank with RRF; precision = a cross-encoder blend over
+  like-for-like fields (description 55 / parameters 20 / name 15 / title 10 —
+  contributions always sum to the shown %). Every published *view* (external
+  text, internal override) competes as its own variant; overlap rows are view
+  combinations with per-side pills. ONE materialized registry-wide report
+  serves every surface (Products page, product tabs, editor, status dots) —
+  cached by an entity-version fingerprint (stale data is structurally
+  impossible; no TTLs), rebuilt in the background on every write, warmed at
+  startup. The editor's live check is two-tier (cheap while typing after a
+  word boundary; resolution packages fetched lazily when flagged) and
+  suggestions are generate-and-tested worst-case against every product with
+  meaning preserved (surgical sentence edits + retention guard). All knobs
+  live in `app/tuning.py` and are super-admin overridable at runtime.
 - **Generic entities.** `type = tool | agent` end-to-end — the Agent Registry
   (A2A agent cards) is an entity type, not a rewrite.
+
+- **Drafts.** The editor autosaves a per-tool draft (localStorage) that
+  survives navigation until published or discarded (whole or per tab), shows
+  a published → draft diff, and detects concurrent publishes (a draft records
+  the version it was based on).
+- **Swappable infrastructure.** Postgres: set `REGISTRY_DATABASE_URL`
+  (async SQLAlchemy; schema is Alembic-managed, `alembic upgrade head`).
+  Dragonfly (or any Redis-protocol server): set `REGISTRY_REDIS_URL` — the
+  bus and cache speak plain Redis protocol, so it is a URL change, no code.
+  The API is stateless: scale horizontally behind a load balancer; move the
+  in-process preview/report caches to Redis when running multiple replicas.
+- **Error contract.** Validation errors are field-pinned (`path`, `code`,
+  friendly `message`, rendered inline under the exact field); unexpected
+  errors return a clean 500 with a logged server-side trace — stack traces
+  never reach clients.
 
 ## Tests
 

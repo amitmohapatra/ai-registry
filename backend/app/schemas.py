@@ -81,9 +81,26 @@ class ApiKeyCreated(ApiKeyOut):
 
 # ---- entities ----
 class EntityIn(BaseModel):
+    """A tool/agent definition. `payload` is the full MCP-facing document."""
     type: str = "tool"
     payload: Dict[str, Any]
     note: str = ""
+    model_config = {"json_schema_extra": {"examples": [{
+        "type": "tool",
+        "note": "initial version",
+        "payload": {
+            "name": "get_invoice",
+            "title": "Get invoice",
+            "description": "Fetch a single invoice by its ID, including line items and payment state.",
+            "input_schema": {"type": "object",
+                             "properties": {"invoice_id": {"type": "string",
+                                                           "description": "Unique invoice identifier"}},
+                             "required": ["invoice_id"]},
+            "annotations": {"readOnlyHint": True},
+            "audiences": {"internal": {"overrides": {
+                "description": "Internal ledger view of a single invoice."}}}
+        }
+    }]}}
 
 class EntityPatch(BaseModel):
     payload: Dict[str, Any]
