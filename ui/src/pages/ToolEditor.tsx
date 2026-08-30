@@ -424,12 +424,14 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           <p className="muted" style={{ margin: '6px 0 0' }}>
             <span className="dot green" />
             {prev && prev.score >= th ? (<>
-              Looks distinct now — <s>{Math.round(prev.score * 100)}%</s> →{' '}
-              <b>{Math.round(top.score * 100)}%</b>
+              Looks distinct now —{' '}
               {prev.name === top.name
-                ? <> with <b className="score">{top.product_key}/{top.name}</b></>
-                : <> (was <b className="score">{prev.product_key}/{prev.name}</b>; closest is now{' '}
-                    <b className="score">{top.product_key}/{top.name}</b>)</>}, below your{' '}
+                ? <><s>{Math.round(prev.score * 100)}%</s> → <b>{Math.round(top.score * 100)}%</b>{' '}
+                    with <b className="score">{top.product_key}/{top.name}</b></>
+                : <>was <s>{Math.round(prev.score * 100)}%</s> with{' '}
+                    <b className="score">{prev.product_key}/{prev.name}</b>; closest is now{' '}
+                    <b className="score">{top.product_key}/{top.name}</b> at{' '}
+                    <b>{Math.round(top.score * 100)}%</b></>}, below your{' '}
               {Math.round(th * 100)}% threshold.
             </>) : (<>
               No conflicts — closest match is <b className="score">{top.product_key}/{top.name}</b>{' '}
