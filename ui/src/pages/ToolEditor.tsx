@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
-import { PairBreakdown } from '../components'
+import { OverlapPairs } from '../components'
 
 type Param = { name: string; schema: any; required: boolean }
 type Overlay = { enabled?: boolean; overrides?: any }
@@ -39,7 +39,7 @@ export default function ToolEditor() {
   const [matches, setMatches] = useState<Matches | null>(null)
   const [checking, setChecking] = useState(false)
   const [savedPayload, setSavedPayload] = useState<any>(null)
-  const [savedMatches, setSavedMatches] = useState<Matches | null>(null)
+  const [savedReport, setSavedReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
   const debounce = useRef<number>()
   const matchDebounce = useRef<number>()
   const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
@@ -52,9 +52,9 @@ export default function ToolEditor() {
       api.entity(productKey, entityId).then(e => { // coming back always shows the published tool
         setSavedPayload(e.payload); setVersion(e.version)
         setPayload(e.payload)
-        api.similarPreview(productKey, { type: 'tool', suggestions: false,
-          payload: { ...e.payload, _entity_id: entityId } })
-          .then(setSavedMatches).catch(() => {})              // panel shows PUBLISHED state
+        api.duplicates(productKey, 'all').then(r => setSavedReport(
+          { ...r, pairs: r.pairs.filter((p: any) => p.a.id === entityId || p.b.id === entityId) }))
+          .catch(() => {})                                    // same scan as the overlap pages
       })
       api.versions(productKey, entityId).then(setVersions)
     } else {
@@ -139,9 +139,9 @@ export default function ToolEditor() {
       } else {
         const e = await api.updateEntity(productKey, entityId!, { payload })
         sessionStorage.removeItem(draftKey); setSavedPayload(payload)
-        api.similarPreview(productKey, { type: 'tool', suggestions: false,
-          payload: { ...payload, _entity_id: entityId } })
-          .then(setSavedMatches).catch(() => {})              // published -> panel updates now
+        api.duplicates(productKey, 'all').then(r => setSavedReport(
+          { ...r, pairs: r.pairs.filter((p: any) => p.a.id === entityId || p.b.id === entityId) }))
+          .catch(() => {})                                    // published -> tab updates now
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
         api.versions(productKey, entityId!).then(setVersions)
@@ -185,7 +185,7 @@ export default function ToolEditor() {
         {!isNew && (
           <button className={tab === 'similar' ? 'active' : ''} onClick={() => setTab('similar')}>
             Similar tools
-            {savedMatches && ((savedMatches.matches ?? []).some(m => m.score >= (savedMatches.threshold ?? 0.5))
+            {savedReport && (savedReport.pairs.length
               ? <span className="dot red" title="Overlaps at or above the threshold" />
               : <span className="dot green" title="No overlaps" />)}
           </button>
@@ -207,13 +207,23 @@ export default function ToolEditor() {
           preview={preview} errors={errors} matches={matches} checking={checking} set={set} />
       ) : null}
 
-      {tab === 'similar' && !isNew && <SimilarPanel entityId={entityId} matches={savedMatches} />}
+      {tab === 'similar' && !isNew && (
+        <div className="card">
+          <h2>{savedReport && (savedReport.pairs.length
+              ? <span className="dot red" /> : <span className="dot green" />)}
+            Similar tools <span className="muted">(as published — one row per audience view, same
+            numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
+          <OverlapPairs report={savedReport} showCross={false}
+            explain={p => api.explainPair(productKey, p.a.id, p.b.id,
+              p.a.view === 'internal' ? 'internal' : '', p.b.view === 'internal' ? 'internal' : '')} />
+        </div>
+      )}
       {tab === 'history' && !isNew && (
         <div className="card">
           <h2>Version history</h2>
           <table><tbody>{versions.map(v => (
                 <tr key={v.version}><td className="score">v{v.version}</td>
-                  <td className="muted">{v.note || '—'}</td>
+                  <td className="muted">{v.note || v.changes || '—'}</td>
                   <td className="muted">{new Date(v.created_at).toLocaleString()}</td>
                   <td>{v.version === version
                     ? <span className="pill on">active</span>
@@ -240,58 +250,6 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
       <div className="preview">{preview
         ? JSON.stringify(tab === 'base' ? preview : { [tab]: preview[tab] }, null, 2)
         : errors.length ? '⚠ fix the errors to see the preview' : '…'}</div>
-    </div>
-  )
-}
-
-/* ---------- similar tools: expandable rows, same experience as Check overlaps ---------- */
-function SimilarPanel({ entityId, matches }:
-  { entityId?: string; matches: Matches | null }) {
-  const [open, setOpen] = useState('')
-  const [detail, setDetail] = useState<Record<string, any>>({})
-  const th = matches?.threshold ?? 0.5
-  const visible = (matches?.matches ?? []).filter(m => m.score >= th)
-  if (!matches) return null
-  if (visible.length === 0) return (
-    <div className="card"><h2><span className="dot green" /> Similar tools <span className="muted">(as published)</span></h2>
-      <p className="muted">No overlaps — nothing at or above your {Math.round(th * 100)}% threshold.</p></div>
-  )
-
-  const toggle = (m: Similar) => {
-    if (open === m.id) { setOpen(''); return }
-    setOpen(m.id)
-    if (detail[m.id]) return
-    // draft-consistent: the SAME breakdown that produced this row's %
-    const bd = (m as any).breakdown
-    const extra = matches.top_explain?.other?.id === m.id ? matches.top_explain : {}
-    setDetail(d => ({ ...d, [m.id]: bd ? { ...extra, ...bd } : (extra.subscores ? extra : { failed: true }) }))
-  }
-
-  return (
-    <div className="card">
-      <h2><span className="dot red" /> Similar tools — {visible.length} at or above {Math.round(th * 100)}%
-        <span className="muted"> (as published — updates when you save; the warning above tracks your draft live)</span></h2>
-      <table>
-        <thead><tr><th>Tool</th><th>Similarity</th><th>Status</th><th /></tr></thead>
-        <tbody>{visible.slice(0, 5).flatMap(m => {
-        const rows = [(
-          <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => toggle(m)}>
-            <td><b className="score">{m.product_key}/{m.name}</b></td>
-            <td><b className="score">{Math.round(m.score * 100)}%</b></td>
-            <td><span className="pill off">above threshold</span></td>
-            <td className="detail-cell">{open === m.id ? '▾ Hide' : '▸ Details'}</td>
-          </tr>)]
-        if (open === m.id) {
-          const ex = detail[m.id]
-          rows.push(
-            <tr key={m.id + 'x'}><td colSpan={4} style={{ background: '#f8f9fa' }}>
-              {!ex ? <span className="muted">{entityId ? 'Analyzing…' : 'Save the tool to compare in detail.'}</span>
-                : ex.failed ? <span className="muted">Couldn't load this comparison.</span>
-                : <PairBreakdown ex={ex} />}
-            </td></tr>)
-        }
-        return rows
-      })}</tbody></table>
     </div>
   )
 }

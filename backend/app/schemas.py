@@ -113,6 +113,7 @@ class VersionOut(BaseModel):
     note: str
     author_id: str
     created_at: Any
+    changes: str = ""            # human summary: what this version touched
     model_config = {"from_attributes": True}
 
 class SimilarOut(BaseModel):

@@ -153,13 +153,48 @@ async def dry_run(body: EntityIn, ctx: tuple = Depends(require_member),
 
 # ---- versions & rollback ----
 
+def _version_changes(prev: dict | None, cur: dict) -> str:
+    """One-line 'what changed where' between consecutive versions — a single
+    atomic history stays legible without splitting it per audience."""
+    if prev is None:
+        return "created"
+    parts: list[str] = []
+    labels = {"name": "name", "title": "title", "description": "description",
+              "input_schema": "parameters", "annotations": "annotations"}
+    for field, label in labels.items():
+        if prev.get(field) != cur.get(field):
+            parts.append(f"base {label}")
+    pa, ca = prev.get("audiences") or {}, cur.get("audiences") or {}
+    for aud in sorted(set(pa) | set(ca)):
+        if aud not in pa:
+            parts.append(f"{aud} override added")
+        elif aud not in ca:
+            parts.append(f"{aud} override removed")
+        elif pa[aud] != ca[aud]:
+            po, co = pa[aud].get("overrides") or {}, ca[aud].get("overrides") or {}
+            sub = [k for k in ("description", "title", "parameters") if po.get(k) != co.get(k)]
+            if pa[aud].get("enabled") != ca[aud].get("enabled"):
+                sub.append("enabled" if ca[aud].get("enabled") is not False else "disabled")
+            parts.append(f"{aud} " + (", ".join(sub) if sub else "override changed"))
+    return "; ".join(parts) or "no content change"
+
+
+
 @router.get("/{entity_id}/versions", response_model=list[VersionOut])
 async def versions(entity_id: str, ctx: tuple = Depends(require_member),
                    db: AsyncSession = Depends(get_session)):
     product, _, _ = ctx
     await _get_entity(db, product.id, entity_id)
-    return (await db.execute(select(EntityVersion).where(EntityVersion.entity_id == entity_id)
+    rows = (await db.execute(select(EntityVersion).where(EntityVersion.entity_id == entity_id)
                              .order_by(EntityVersion.version.desc()))).scalars().all()
+    by_version = {r.version: r for r in rows}
+    out = []
+    for r in rows:
+        prev = by_version.get(r.version - 1)
+        out.append({"version": r.version, "note": r.note, "author_id": r.author_id,
+                    "created_at": r.created_at,
+                    "changes": _version_changes(prev.payload if prev else None, r.payload)})
+    return out
 
 
 @router.post("/{entity_id}/rollback/{version}", response_model=EntityOut)

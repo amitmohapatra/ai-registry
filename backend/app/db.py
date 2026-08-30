@@ -17,8 +17,11 @@ def init_engine(url: str = ""):
     global _engine, _session_factory
     # similarity scoring can briefly queue many requests; give the pool
     # headroom so short DB reads never starve behind long CPU work
-    _engine = create_async_engine(url or get_settings().database_url, echo=False,
-                                  pool_size=10, max_overflow=20, pool_timeout=10)
+    # (in-memory SQLite uses StaticPool, which rejects sizing arguments)
+    resolved = url or get_settings().database_url
+    kw = {} if ":memory:" in resolved else dict(pool_size=10, max_overflow=20,
+                                                pool_timeout=10)
+    _engine = create_async_engine(resolved, echo=False, **kw)
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
     return _engine
 
