@@ -11,12 +11,26 @@ export default function ProductDetail({ me }: { me: User | null }) {
   const [dups, setDups] = useState<{ pairs: any[] } | null>(null)
   const [audBump, setAudBump] = useState(0)
   const [manageTab, setManageTab] = useState('members')
-  useEffect(() => { api.product(productKey).then(setProduct) }, [productKey])
+  const [loadErr, setLoadErr] = useState<number | null>(null)
+  useEffect(() => {
+    setLoadErr(null)
+    api.product(productKey).then(setProduct)
+      .catch(e => setLoadErr(e?.status ?? 500))
+  }, [productKey])
   useEffect(() => {          // light background scan drives the overlap status dots
     setDups(null); api.duplicates(productKey, 'all').then(setDups).catch(() => {})
   }, [productKey])
   const overlapIds = useMemo(() =>
     new Set((dups?.pairs ?? []).flatMap((p: any) => [p.a.id, p.b.id])), [dups])
+  if (loadErr) return (
+    <div className="card" style={{ maxWidth: 520, margin: '80px auto', textAlign: 'center' }}>
+      <h2 style={{ marginTop: 0 }}>{loadErr === 403 ? 'No access to this product' : 'Product not found'}</h2>
+      <p className="muted">{loadErr === 403
+        ? "You're not a member of this product. Ask one of its admins to add you, or send them a handoff report from the overlap view."
+        : 'It may have been deleted, or the link is wrong.'}</p>
+      <Link to="/"><button className="primary">Back to products</button></Link>
+    </div>
+  )
   if (!product) return null
   const canEdit = product.role === 'admin' || product.role === 'super_admin'
   const tabs = ['tools', 'agents', 'overlaps', 'manage']

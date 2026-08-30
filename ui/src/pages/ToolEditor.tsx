@@ -56,9 +56,11 @@ export default function ToolEditor() {
   const matchDebounce = useRef<number>()
   const draftKey = `draft:${productKey}:${entityId ?? 'new'}`
 
+  const [loadErr, setLoadErr] = useState<number | null>(null)
   useEffect(() => {
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
-    api.audiences(productKey).then(a => setAudiences(a.map(x => x.key)))
+      .catch(e => setLoadErr(e?.status ?? 500))
+    api.audiences(productKey).then(a => setAudiences(a.map(x => x.key))).catch(() => {})
     if (entityId) {
       api.entity(productKey, entityId).then(e => {
         setSavedPayload(e.payload); setVersion(e.version)
@@ -76,8 +78,8 @@ export default function ToolEditor() {
               .filter((p: any) => p.a.id === entityId || p.b.id === entityId)
               .map((p: any) => p.a.id === entityId ? p : { ...p, a: p.b, b: p.a }) }))
           .catch(() => {})                                    // same scan as the overlap pages
-      })
-      api.versions(productKey, entityId).then(setVersions)
+      }).catch(e => setLoadErr(e?.status ?? 500))
+      api.versions(productKey, entityId).then(setVersions).catch(() => {})
     } else {
       const raw = localStorage.getItem(draftKey)
       if (raw) { const sp = JSON.parse(raw); setPayload(sp?.payload ?? sp) }
@@ -241,6 +243,16 @@ export default function ToolEditor() {
       else setErrors([{ path: '', code: 'error', message: String((ex as any)?.detail ?? 'Save failed') }])
     }
   }
+
+  if (loadErr) return (
+    <div className="card" style={{ maxWidth: 520, margin: '80px auto', textAlign: 'center' }}>
+      <h2 style={{ marginTop: 0 }}>{loadErr === 403 ? 'No access to this product' : 'Tool not found'}</h2>
+      <p className="muted">{loadErr === 403
+        ? "You're not a member of this product, so its tools can't be opened here. Ask one of its admins to add you, or send them a handoff report from the overlap view."
+        : 'It may have been deleted, or the link is wrong.'}</p>
+      <RouterLink to="/"><button className="primary">Back to products</button></RouterLink>
+    </div>
+  )
 
   return (
     <>
