@@ -104,9 +104,11 @@ export default function ToolEditor() {
     prevTexts.current = texts
     const tail = changed.slice(-1)
     const boundary = tail === '' || /[\s.,;:!?)]/.test(tail)
+    const view = tab === 'base' ? 'base'
+      : audiences.includes(tab) ? tab : 'base'
     matchDebounce.current = window.setTimeout(() => {
       setChecking(true)
-      api.similarPreview(productKey, { type: 'tool', suggestions: false,
+      api.similarPreview(productKey, { type: 'tool', suggestions: false, view,
         payload: { ...payload, _entity_id: entityId } })
         .then(r => setMatches(prev => ({ ...r,
           // keep already-loaded packages while the % updates
@@ -115,20 +117,22 @@ export default function ToolEditor() {
         .catch(() => {}).finally(() => setChecking(false))
     }, boundary ? 600 : 1800)
   }, [payload.name, payload.title, payload.description, payload.input_schema,
-      JSON.stringify(payload.audiences ?? {}), productKey])
+      JSON.stringify(payload.audiences ?? {}), productKey, tab])
 
   // tier 2: fetch resolutions only when flagged, after the draft settles
   useEffect(() => {
     const top = matches?.matches?.[0]
     const th2 = matches?.threshold ?? 0.5
     if (!top || top.score < th2 || matches?.suggestions) return
+    const view = tab === 'base' ? 'base'
+      : audiences.includes(tab) ? tab : 'base'
     const id = window.setTimeout(() => {
-      api.similarPreview(productKey, { type: 'tool', suggestions: true,
+      api.similarPreview(productKey, { type: 'tool', suggestions: true, view,
         payload: { ...payload, _entity_id: entityId } })
         .then(setMatches).catch(() => {})
     }, 900)
     return () => window.clearTimeout(id)
-  }, [matches, productKey])
+  }, [matches, productKey, tab])
 
 
   const set = (patch: any) => setPayload((p: any) => ({ ...p, ...patch }))
@@ -204,14 +208,14 @@ export default function ToolEditor() {
         )}
       </div>
       {tab === 'base' ? (
-        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay} setTab={setTab}
+        <BaseForm payload={payload} set={set} setSchema={setSchema} isNew={isNew} setOverlay={setOverlay}
           matches={matches} setPayload={setPayload} checking={checking}
           dirty={!isNew && savedPayload !== null &&
                  JSON.stringify(payload) !== JSON.stringify(savedPayload)}
           preview={preview} previewTab="base" errors={errors} />
       ) : tab !== 'similar' && tab !== 'history' ? (
         <AudienceForm aud={tab} overlay={payload.audiences?.[tab] ?? {}}
-          basePayload={payload} setOverlay={setOverlay} setTab={setTab}
+          basePayload={payload} setOverlay={setOverlay}
           matches={matches} checking={checking} set={set} />
       ) : null}
 
@@ -263,7 +267,7 @@ function PreviewPanel({ preview, tab, errors }: { preview: any; tab: string; err
   )
 }
 
-function SimilarityWarning({ matches, checking, payload, set, setOverlay, setTab, dirty, aud }: any) {
+function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty, aud }: any) {
   const drv = (matches as any)?.flagged_audience ?? null   // null = external/base text drives
   const here = aud ?? null
   const owns = drv === here
@@ -308,13 +312,6 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, setTab
                 ))}
             </span>
           )}
-          {!owns && (
-            <div className="sugg-row" style={{ marginTop: 8, fontWeight: 400 }}>
-              The colliding text lives on the <b>{drv ?? 'external'}</b> tab —
-              <button className="small" style={{ marginLeft: 8 }}
-                onClick={() => setTab?.(drv ?? 'base')}>fix it there</button>
-            </div>
-          )}
           {owns && !matches.suggestions && (
             <div className="sugg-row" style={{ marginTop: 8 }}>
               <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
@@ -333,7 +330,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, setTab
                     <span className="pkg-num">{i + 1}</span>
                     {p.name !== payload.name
                       ? <><b className="score">{p.name}</b><span className="muted">·</span></>
-                      : <span className="muted">keep the name —</span>}
+                      : aud ? null : <span className="muted">keep the name —</span>}
                     {p.title && p.title !== payload.title && (
                       <><span className="pkg-title">{p.title}</span><span className="muted">·</span></>
                     )}
@@ -373,7 +370,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, setTab
 }
 
 /* ---------- base form ---------- */
-function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay, setTab }: any) {
+function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview, errors, checking, dirty, setOverlay }: any) {
   const [jsonMode, setJsonMode] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [jsonText, setJsonText] = useState('')
@@ -386,7 +383,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
       <input value={payload.title ?? ''} onChange={e => set({ title: e.target.value })} placeholder="Get invoice" />
       <label>Description * (what the model reads — the most important field)</label>
       <textarea value={payload.description} onChange={e => set({ description: e.target.value })} />
-      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} setTab={setTab} dirty={dirty} />
+      <SimilarityWarning matches={matches} checking={checking} payload={payload} set={set} setOverlay={setOverlay} dirty={dirty} />
       <div className="toolbar" style={{ marginTop: 14 }}>
         <label style={{ margin: 0 }}>Parameters</label>
         <button className="small" onClick={() => {
@@ -449,7 +446,7 @@ function BaseForm({ payload, set, setSchema, isNew, matches, setPayload, preview
 
 /* ---------- audience form: same experience as Base ---------- */
 
-function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, checking, set }: any) {
+function AudienceForm({ aud, overlay, basePayload, setOverlay, matches, checking, set }: any) {
   const ov = overlay.overrides ?? {}
   const enabled = overlay.enabled !== false
 
@@ -473,7 +470,7 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, 
               const x = { ...(o.overrides ?? {}) }; delete x.description; return { ...o, overrides: x }
             })}>Reset to external description</button>
         )}
-        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} setTab={setTab} aud={aud} />
+        <SimilarityWarning matches={matches} checking={checking} payload={basePayload} set={set} setOverlay={setOverlay} aud={aud} />
         <p className="muted" style={{ marginTop: 14 }}>Parameters always follow the external tab —
           internal differs only in wording, never in schema.</p>
       </>)}

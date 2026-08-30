@@ -22,6 +22,9 @@ class DraftIn(BaseModel):
     type: str = "tool"
     payload: dict
     suggestions: bool = True    # False = cheap while-typing check (matches only)
+    view: str = "worst"         # which DRAFT view to score: 'worst' (all views,
+                                # legacy/API), 'base' (external tab), or an
+                                # audience key (that tab checks only its own text)
 
 
 class SettingsIn(BaseModel):
@@ -114,7 +117,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     import json as _json
     reg_state = sorted((c["id"], c.get("v")) for c in cands)
     cache_key = hashlib.sha256(_json.dumps(
-        [payload, threshold, tune, reg_state, body.suggestions],
+        [payload, threshold, tune, reg_state, body.suggestions, body.view],
         sort_keys=True, default=str).encode()).hexdigest()
     hit = _preview_cache.get(cache_key)
     if hit is not None:
@@ -179,6 +182,11 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             return out, out[0]["draft_view"] if out else None
 
         draft_views = _views_of(pl)
+        if body.view == "base":
+            draft_views = draft_views[:1]          # the external tab checks base text
+        elif body.view != "worst":
+            sel = [v for v in draft_views if v[0] == body.view]
+            draft_views = sel or draft_views[:1]   # an audience tab checks its view
         matches, top_draft_view = rescore(draft_views)
         for m in matches:
             m["name_sim"] = name_similarity(pl.get("name", ""), m["name"])
@@ -208,9 +216,10 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
                         continue
                     ov = dict(_views_of(by_id[m["id"]]))
                     nearby.append(ov.get(m.get("match_view"), by_id[m["id"]]))
+                desc_only = body.view not in ("worst", "base")
                 suggestions = build_suggestions(
                     pl, by_id[top["id"]], product.key, taken,
-                    name_collision=flagged,
+                    name_collision=flagged and not desc_only,
                     threshold=threshold, others=nearby, tune=tune)
         return matches, top_explain, flagged_audience, suggestions
 
