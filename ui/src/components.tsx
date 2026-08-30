@@ -145,11 +145,12 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
   const [open, setOpen] = useState('')
   const [detail, setDetail] = useState<any>('idle')
   const [fix, setFix] = useState<any>('idle')
+  const [fixOpen, setFixOpen] = useState<number | null>(null)
   const pct = (x: number) => `${Math.round(x * 100)}%`
   const toggle = async (p: any) => {
     const k = p.a.id + p.b.id
     if (open === k) { setOpen(''); setDetail('idle'); setFix('idle'); return }
-    setOpen(k); setDetail('loading'); setFix(resolve ? 'loading' : 'idle')
+    setOpen(k); setDetail('loading'); setFix(resolve ? 'loading' : 'idle'); setFixOpen(null)
     setDetail(await explain(p).catch(() => 'error') ?? 'error')
     if (resolve) setFix(await resolve(p).catch(() => 'error') ?? 'error')
   }
@@ -195,16 +196,22 @@ export function OverlapPairs({ report, explain, resolve, cap = 50, showCross = t
                     {fix.side === 'b' && <> — it lives on the other side</>}: {' '}
                     <span className="score">{fix.tool.product_key}/{fix.tool.name}</span></b>
                   {fix.packages.slice(0, 2).map((pk: any, i: number) => (
-                    <div key={i} className="pkg-row" style={{ padding: '6px 0' }}>
-                      <span className="pkg-num">{i + 1}</span>
-                      <b className="score">{pk.name}</b>
-                      <span className="muted">·</span>
-                      <span className="pkg-title" title={pk.description}>{pk.title}</span>
-                      <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
-                        <span className="delta ok">→ {Math.round(pk.new_overall * 100)}% ✓</span></span>
-                      <button className="icon-act" title="Copy this fix (name, title, description)"
-                        onClick={() => navigator.clipboard.writeText(
-                          `${pk.name}\n${pk.title}\n${pk.description}`)}>⧉</button>
+                    <div key={i}>
+                      <div className="pkg-row" style={{ padding: '6px 0' }}>
+                        <span className="pkg-num">{i + 1}</span>
+                        <b className="score">{pk.name}</b>
+                        <span className="muted">·</span>
+                        <span className="pkg-title">{pk.title}</span>
+                        <span className="muted">·</span>
+                        <button className="small" onClick={() => setFixOpen(fixOpen === i ? null : i)}>
+                          {fixOpen === i ? 'hide description' : 'description'}</button>
+                        <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
+                          <span className="delta ok">→ {Math.round(pk.new_overall * 100)}% ✓</span></span>
+                        <button className="icon-act" title="Copy this fix (name, title and description)"
+                          onClick={() => navigator.clipboard.writeText(
+                            `${pk.name}\n${pk.title}\n${pk.description}`)}>⧉</button>
+                      </div>
+                      {fixOpen === i && <div className="resolve-desc">{pk.description}</div>}
                     </div>
                   ))}
                 </div>
