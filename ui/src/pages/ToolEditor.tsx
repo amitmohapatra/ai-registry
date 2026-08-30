@@ -104,9 +104,23 @@ export default function ToolEditor() {
   //  2. the expensive resolution packages are fetched separately (below),
   //     only when flagged and only once the draft has settled
   const prevTexts = useRef<string[]>([])
+  const lastCheckSig = useRef('')
   useEffect(() => {
     window.clearTimeout(matchDebounce.current)
     if (!payload.name && !payload.description) return
+    // whitespace-only edits are noise: normalize everything similarity reads
+    // and skip entirely when the normalized content is unchanged
+    const norm = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim()
+    const sig = JSON.stringify([
+      norm(payload.name), norm(payload.title), norm(payload.description),
+      JSON.stringify(payload.input_schema),
+      Object.keys(payload.audiences ?? {}).sort().map(k => {
+        const o = (payload.audiences?.[k] ?? {}) as any
+        return [k, norm(o.overrides?.description), norm(o.overrides?.title), o.enabled !== false]
+      }),
+      tab === 'base' ? 'base' : audiences.includes(tab) ? tab : 'base',
+    ])
+    if (sig === lastCheckSig.current) return
     // find the text the user is ACTUALLY editing (base or any audience
     // override) so mid-word typing gets the long delay on every tab
     const texts = [String(payload.description ?? ''), String(payload.title ?? ''),
@@ -122,6 +136,7 @@ export default function ToolEditor() {
     const view = tab === 'base' ? 'base'
       : audiences.includes(tab) ? tab : 'base'
     matchDebounce.current = window.setTimeout(() => {
+      lastCheckSig.current = sig
       setChecking(true)
       api.similarPreview(productKey, { type: 'tool', suggestions: false, view,
         payload: { ...payload, _entity_id: entityId } })
