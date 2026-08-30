@@ -342,3 +342,9 @@ details.collapsible[open] summary h2::before { content: '▾ '; }
 .onboard-row label { margin-top: 0; }
 
 
+
+.aud-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.aud-row:last-child { border-bottom: 0; }
+.aud-check { display: flex; align-items: center; gap: 8px; font-weight: 400;
+  margin: 0; font-size: 13.5px; cursor: pointer; }
+.aud-check input { width: auto; }

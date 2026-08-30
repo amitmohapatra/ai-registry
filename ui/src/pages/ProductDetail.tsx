@@ -123,10 +123,9 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
 
 function Duplicates({ productKey }: { productKey: string }) {
   const [scope, setScope] = useState('all')
-  const [audience, setAudience] = useState('all')
-  const [report, setReport] = useState<{ threshold: number; pairs: any[]; audience_keys?: string[] } | null>(null)
-  useEffect(() => { setReport(null); api.duplicates(productKey, scope, audience).then(setReport) },
-    [productKey, scope, audience])
+  const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
+  useEffect(() => { setReport(null); api.duplicates(productKey, scope).then(setReport) },
+    [productKey, scope])
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -134,15 +133,9 @@ function Duplicates({ productKey }: { productKey: string }) {
         <div className="row">
           {report && <span className="muted">flagging ≥ {Math.round(report.threshold * 100)}% — adjust in
             Manage → Similarity</span>}
-          <select style={{ width: 200 }} value={scope} onChange={e => setScope(e.target.value)}>
+          <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
             <option value="all">Involving this product</option>
             <option value="product">Within this product only</option>
-          </select>
-          <select style={{ width: 170 }} value={audience} onChange={e => setAudience(e.target.value)}
-            title="Which audience's published text to compare">
-            <option value="all">All audiences</option>
-            {(report?.audience_keys ?? []).map(a =>
-              <option key={a} value={a}>{a} view</option>)}
           </select>
         </div>
       </div>
@@ -210,46 +203,38 @@ function ParamChips({ schema }: { schema: any }) {
 function Audiences({ productKey, canEdit, onChanged }:
   { productKey: string; canEdit: boolean; onChanged?: () => void }) {
   const [audiences, setAudiences] = useState<Audience[] | null>(null)
-  const [key, setKey] = useState(''); const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
   const load = () => api.audiences(productKey).then(setAudiences)
   useEffect(() => { load() }, [productKey])
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault(); setErr('')
+  const hasInternal = (audiences ?? []).some(a => a.key === 'internal')
+  const toggleInternal = async (on: boolean) => {
+    setBusy(true)
     try {
-      const created = await api.addAudience(productKey, { key })
-      setKey('')
-      setAudiences(a => [...(a ?? []), created])   // instant, no refetch wait
-      onChanged?.()
-    }
-    catch (ex: any) { setErr(String(ex.detail ?? 'Failed — lowercase key, e.g. internal')) }
+      if (on) await api.addAudience(productKey, { key: 'internal' })
+      else await api.deleteAudience(productKey, 'internal')
+      toast(on ? 'Internal audience enabled' : 'Internal audience removed — its overrides were stripped from all tools')
+      await load(); onChanged?.()
+    } catch (ex: any) { toast(String(ex.detail ?? 'Failed')) }
+    finally { setBusy(false) }
   }
   return (
     <div className="card">
       <h2>Audiences</h2>
       <p className="muted">Callers request an audience with the <code>x-tool-audience</code> header; it is only honored
-        when their credentials carry the <code>audience:&lt;key&gt;</code> scope. Everyone else gets the default.</p>
-      <table>
-        <thead><tr><th>Key</th><th>Name</th><th>Default</th><th /></tr></thead>
-        <tbody>{audiences === null
-          ? <tr><td colSpan={4} className="muted">Loading…</td></tr>
-          : audiences.map(a => (
-          <tr key={a.id}><td className="score">{a.key}</td><td>{a.display_name}</td>
-            <td>{a.is_default ? <span className="pill on">default</span> : ''}</td>
-            <td>{canEdit && !a.is_default &&
-              <ConfirmButton icon label="Delete audience (removes its overrides from all tools)"
-                confirmLabel="Delete?" onConfirm={async () => {
-                  await api.deleteAudience(productKey, a.key); toast(`Audience ${a.key} deleted`)
-                  setAudiences(x => (x ?? []).filter(y => y.id !== a.id)); onChanged?.()
-                }} />}</td></tr>
-        ))}</tbody>
-      </table>
-      {canEdit && (
-        <form className="row" style={{ marginTop: 14 }} onSubmit={add}>
-          <input style={{ flex: 1 }} placeholder="internal" value={key} onChange={e => setKey(e.target.value)} />
-          <button className="primary">Add audience</button>
-          {err && <div className="err" style={{ width: '100%' }}>{err}</div>}
-        </form>
-      )}
+        when their credentials carry the <code>audience:&lt;key&gt;</code> scope. Everyone else gets external.</p>
+      <div className="aud-row">
+        <label className="aud-check"><input type="checkbox" checked disabled /> <b>external</b>
+          <span className="muted"> — always available, the default every caller gets</span></label>
+      </div>
+      <div className="aud-row">
+        <label className="aud-check">
+          <input type="checkbox" checked={hasInternal} disabled={!canEdit || busy || audiences === null}
+            onChange={e => toggleInternal(e.target.checked)} />
+          {' '}<b>internal</b>
+          <span className="muted"> — enable to give internal callers their own tool views
+            {hasInternal ? '' : ' (unchecking later strips its overrides from every tool)'}</span>
+        </label>
+      </div>
     </div>
   )
 }

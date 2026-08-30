@@ -131,6 +131,10 @@ async def remove_member(user_id: str, ctx: tuple = Depends(require_product_admin
 async def add_audience(body: AudienceIn, ctx: tuple = Depends(require_product_admin),
                        db: AsyncSession = Depends(get_session)):
     product, actor, _ = ctx
+    if body.key != "internal":
+        raise HTTPException(422, "Only the 'internal' audience can be added — "
+                                 "'external' is always available and is the default.")
+    body.is_default = False                        # external stays the default
     exists = (await db.execute(select(Audience).where(
         Audience.product_id == product.id, Audience.key == body.key))).scalars().first()
     if exists:

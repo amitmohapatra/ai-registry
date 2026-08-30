@@ -13,8 +13,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   const [key, setKey] = useState(''); const [name, setName] = useState('')
   const [err, setErr] = useState('')
   const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[]; audience_keys?: string[] } | null>(null)
-  const [audience, setAudience] = useState('all')
-  useEffect(() => { setOverlaps(null); api.duplicatesAll(audience).then(setOverlaps).catch(() => {}) }, [audience])
+  useEffect(() => { setOverlaps(null); api.duplicatesAll().then(setOverlaps).catch(() => {}) }, [])
   const load = () => api.products().then(setProducts)
   useEffect(() => { load() }, [])
 
@@ -99,17 +98,9 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
                 ? <span className="dot red" /> : <span className="dot green" />)}
               Overlapping tools across all products
             </h2>
-            <div className="row">
-              {overlaps && <span className="muted">
-                {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
-                  : `flagging ≥ ${Math.round(overlaps.threshold * 100)}%`}</span>}
-              <select style={{ width: 170 }} value={audience} onChange={e => setAudience(e.target.value)}
-                title="Which audience's published text to compare">
-                <option value="all">All audiences</option>
-                {(overlaps?.audience_keys ?? []).map(a =>
-                  <option key={a} value={a}>{a} view</option>)}
-              </select>
-            </div>
+            {overlaps && <span className="muted">
+              {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
+                : `flagging ≥ ${Math.round(overlaps.threshold * 100)}% — internal-text rows are tagged`}</span>}
           </div>
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
             : <OverlapPairs report={overlaps}

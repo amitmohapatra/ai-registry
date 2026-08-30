@@ -7,7 +7,7 @@ from .conftest import TOOL, login, make_product
 async def setup(client):
     su = await login(client)
     await make_product(client, su, "billing")
-    for aud in ("internal", "intermediate"):
+    for aud in ("internal",):
         await client.post("/v1/products/billing/audiences",
                           json={"key": aud}, headers=su)
     return su
@@ -19,7 +19,7 @@ async def test_create_and_resolve_default_audience(client):
                           json={"type": "tool", "payload": TOOL}, headers=su)
     assert r.status_code == 201
     views = r.json()["resolved"]
-    assert set(views) == {"external", "internal", "intermediate"}
+    assert set(views) == {"external", "internal"}
     ext = views["external"]
     assert ext["enabled"] and ext["spec"]["description"] == TOOL["description"]
     assert ext["spec"]["input_schema"]["required"] == ["invoice_id"]
@@ -39,13 +39,12 @@ async def test_overlay_add_modify_hide_pin(client):
         "external": {"overrides": {
             "parameters": {"hide": {"max_results": {"pin": 25}}},
         }},
-        "intermediate": {"enabled": False},
     }
     r = await client.post("/v1/products/billing/entities",
                           json={"type": "tool", "payload": payload}, headers=su)
     assert r.status_code == 201, r.text
     v = r.json()["resolved"]
-    internal, external, mid = v["internal"], v["external"], v["intermediate"]
+    internal, external = v["internal"], v["external"]
     # internal: added + modified params visible, custom description
     assert "include_ledger" in internal["spec"]["input_schema"]["properties"]
     assert internal["spec"]["input_schema"]["properties"]["invoice_id"]["description"] \
@@ -54,8 +53,7 @@ async def test_overlay_add_modify_hide_pin(client):
     # external: max_results hidden and pinned server-side
     assert "max_results" not in external["spec"]["input_schema"]["properties"]
     assert external["pins"] == {"max_results": 25}
-    # intermediate: disabled entirely
-    assert mid == {"enabled": False}
+
 
 
 async def test_validation_field_level_errors(client):

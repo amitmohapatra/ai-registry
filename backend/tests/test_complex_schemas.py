@@ -69,7 +69,7 @@ COMPLEX = {
 async def setup(client):
     su = await login(client)
     await make_product(client, su, "orders")
-    for aud in ("internal", "partner"):
+    for aud in ("internal",):
         await client.post("/v1/products/orders/audiences", json={"key": aud}, headers=su)
     return su
 
@@ -80,7 +80,7 @@ async def test_nested_schema_roundtrip_preserves_everything(client):
     r = await client.post("/v1/products/orders/entities",
                           json={"type": "tool", "payload": COMPLEX}, headers=su)
     assert r.status_code == 201, r.text
-    for aud in ("external", "internal", "partner"):
+    for aud in ("external", "internal"):
         schema = r.json()["resolved"][aud]["spec"]["input_schema"]
         items = schema["properties"]["items"]
         assert items["description"] == "Line items to order"
@@ -100,7 +100,7 @@ async def test_modify_nested_param_replaces_subtree_and_merges_top_level(client)
     nested object replaces that subtree — deterministic and previewable."""
     su = await setup(client)
     payload = copy.deepcopy(COMPLEX)
-    payload["audiences"] = {"partner": {"overrides": {"parameters": {"modify": {
+    payload["audiences"] = {"internal": {"overrides": {"parameters": {"modify": {
         "shipping": {"description": "Partner shipping (no overnight)",
                      "properties": {
                          "method": {"type": "string", "enum": ["standard", "express"],
@@ -111,7 +111,7 @@ async def test_modify_nested_param_replaces_subtree_and_merges_top_level(client)
     r = await client.post("/v1/products/orders/entities",
                           json={"type": "tool", "payload": payload}, headers=su)
     assert r.status_code == 201, r.text
-    partner = r.json()["resolved"]["partner"]["spec"]["input_schema"]["properties"]
+    partner = r.json()["resolved"]["internal"]["spec"]["input_schema"]["properties"]
     assert partner["shipping"]["description"] == "Partner shipping (no overnight)"
     assert partner["shipping"]["properties"]["method"]["enum"] == ["standard", "express"]
     assert partner["customer_id"]["description"] == "Partner-scoped customer UUID"
