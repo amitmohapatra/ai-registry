@@ -143,6 +143,42 @@ export const avatarHue = (s: string) =>
 export const avatarInitials = (name: string, email = '') =>
   (name || email).split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
 
+/* cross-product handoff: one source of truth for the report text and the
+   contact-the-admins action (Gmail compose prefilled — nothing auto-sends) */
+const handoffReport = (fix: any) =>
+  `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
+  `${fix.tool.name}'s wording collides with another product's tool. ` +
+  `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
+  `description: "${fix.packages[0].description}" ` +
+  `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
+  `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`
+
+const gmailCompose = (to: string[], subject: string, body: string) =>
+  window.open('https://mail.google.com/mail/?view=cm&fs=1'
+    + `&to=${encodeURIComponent(to.join(','))}`
+    + `&su=${encodeURIComponent(subject)}`
+    + `&body=${encodeURIComponent(body)}`, '_blank')
+
+function HandoffActions({ fix, canOpen, admins }:
+  { fix: any; canOpen: boolean; admins: { email: string }[] }) {
+  if (canOpen) return (
+    <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
+      <button className="primary small">Open {fix.tool.name} →</button>
+    </RouterLink>)
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      <button className="primary small"
+        title={admins.length
+          ? `Opens a prefilled Gmail draft to ${admins.map(a => a.email).join(', ')} — review and send`
+          : 'That product has no admins yet — email your super admin instead'}
+        onClick={() => gmailCompose(admins.map(a => a.email),
+          `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} needs a wording fix`,
+          handoffReport(fix) + '\n\nThanks!')}>✉ Email the admins</button>
+      <button className="icon-act" title="Copy the handoff report instead"
+        onClick={() => navigator.clipboard.writeText(handoffReport(fix))}>⧉</button>
+    </span>)
+}
+
 /* on-scroll loading trigger: renders an invisible line; when it scrolls into
    view, onHit() fires (load the next page). The callback is kept in a ref so
    the observer never re-subscribes as parent state changes. */
@@ -176,6 +212,7 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   const [fix, setFix] = useState<any>('idle')
   const [fixOpen, setFixOpen] = useState<number | null>(null)
   const [otherRole, setOtherRole] = useState<string | null>(null)
+  const [otherAdmins, setOtherAdmins] = useState<{ email: string; name: string }[]>([])
   const pct = (x: number) => `${Math.round(x * 100)}%`
   const toggle = async (p: any) => {
     const k = p.a.id + p.b.id
@@ -185,9 +222,12 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
     if (resolve) {
       const out = await resolve(p).catch(() => 'error') ?? 'error'
       setFix(out)
-      if (out && out.side)               // whichever product owns the fix: can
+      if (out && out.side) {             // whichever product owns the fix: can
         api.product(out.tool.product_key) // THIS viewer act on it?
           .then((pr: any) => setOtherRole(pr.role)).catch(() => setOtherRole('none'))
+        api.productAdmins(out.tool.product_key)   // …and who can, for the handoff email
+          .then(setOtherAdmins).catch(() => setOtherAdmins([]))
+      }
     }
   }
   const pairs = report?.pairs ?? []
@@ -247,21 +287,8 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
                               <b className="score">{fix.tool.name}</b>.</>
                           )}
                         </span>
-                        {(otherRole === 'admin' || otherRole === 'super_admin') ? (
-                          <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
-                            <button className="primary small">Open {fix.tool.name} →</button>
-                          </RouterLink>
-                        ) : (
-                          <button className="small" title="You don't have edit access there — copy a report (with the verified fix) for that product's admin"
-                            onClick={() => { navigator.clipboard.writeText(
-                              `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
-                              `${fix.tool.name}'s wording collides with another product's tool. ` +
-                              `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
-                              `description: "${fix.packages[0].description}" ` +
-                              `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
-                              `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`) }}>
-                            ⧉ Copy handoff report</button>
-                        )}
+                        <HandoffActions fix={fix} admins={otherAdmins}
+                          canOpen={otherRole === 'admin' || otherRole === 'super_admin'} />
                       </div>
                     )
                   })()}

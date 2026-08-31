@@ -87,6 +87,20 @@ async def get_channel(product: Product = Depends(get_product),
                       _: User = Depends(require_super)):
     return ChannelConfigIn(**(decrypt_json(product.channel_config_enc) or {}))
 
+@router.get("/{product_key}/admins")
+async def product_admins(product: Product = Depends(get_product),
+                         _: User = Depends(current_user),
+                         db: AsyncSession = Depends(get_session)):
+    """Admin CONTACTS for a product — who can act on a cross-product handoff.
+    Any signed-in user may read this (the user directory already exposes
+    emails org-wide); it deliberately returns admins only, never the roster."""
+    rows = (await db.execute(
+        select(User).join(Membership, Membership.user_id == User.id)
+        .where(Membership.product_id == product.id, Membership.role == "admin",
+               User.is_active == True))).scalars().all()  # noqa: E712
+    return [{"email": u.email, "name": u.name} for u in rows]
+
+
 # ---- members ----
 
 @router.put("/{product_key}/members", response_model=MemberOut)
