@@ -136,6 +136,13 @@ export function ToolInfo({ payload, version, audiences }:
 
 /* One overlap table for every page — same columns, same expandable breakdown,
    same cap. Rows expand on click ("Details" makes that discoverable). */
+/* shared identity-avatar helpers — one hue per account, initials from name */
+const AVATAR_HUES = [210, 275, 160, 25, 340, 190, 95, 0]
+export const avatarHue = (s: string) =>
+  `hsl(${AVATAR_HUES[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_HUES.length]} 45% 46%)`
+export const avatarInitials = (name: string, email = '') =>
+  (name || email).split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
+
 /* on-scroll loading trigger: renders an invisible line; when it scrolls into
    view, onHit() fires (load the next page). The callback is kept in a ref so
    the observer never re-subscribes as parent state changes. */
@@ -188,30 +195,33 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   const shown = pairs.slice(0, visible)
   return (
     <>
-    <table>
-      <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th><th>Similarity</th>{showCross && <th>Cross-product</th>}<th /></tr></thead>
+    <table className="overlap-table">
+      <colgroup><col /><col />{showCross && <col style={{ width: 120 }} />}<col style={{ width: 92 }} /><col style={{ width: 90 }} /></colgroup>
+      <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th>{showCross && <th>Scope</th>}<th>Similarity</th><th /></tr></thead>
       <tbody>{shown.flatMap((p, i) => {
         const k = p.a.id + p.b.id
+        const side = (s: any) => (
+          <span className="tool-ref">
+            <span className="tool-name" title={`${s.product_key}/${s.name}`}>
+              <span className="muted">{s.product_key}/</span><b>{s.name}</b></span>
+            {s.view && <span className={`view-tag ${s.view === 'internal' ? 'int' : ''}`}
+              title={s.view === 'internal' ? "This side compares the tool's internal text"
+                : "This side compares the tool's external text"}>
+              {s.view === 'internal' ? 'internal' : 'external'}</span>}
+          </span>)
         const rows = [(
           <tr key={i} style={{ cursor: 'pointer' }} onClick={() => toggle(p)}>
-            <td><b className="score">{p.a.product_key}/{p.a.name}</b>
-              {p.a.view && <span className={`pill ${p.a.view === 'internal' ? 'aud' : 'user'}`}
-                style={{ marginLeft: 6 }}
-                title={p.a.view === 'internal' ? "This side compares the tool's internal text"
-                  : "This side compares the tool's external text"}>
-                {p.a.view === 'internal' ? 'internal' : 'external'}</span>}</td>
-            <td><b className="score">{p.b.product_key}/{p.b.name}</b>
-              {p.b.view && <span className={`pill ${p.b.view === 'internal' ? 'aud' : 'user'}`}
-                style={{ marginLeft: 6 }}
-                title={p.b.view === 'internal' ? "This side compares the tool's internal text"
-                  : "This side compares the tool's external text"}>
-                {p.b.view === 'internal' ? 'internal' : 'external'}</span>}</td>
-            <td><b className="score" title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</b></td>
-            {showCross && <td>{p.cross_product ? <span className="pill on">yes</span> : <span className="pill user">no</span>}</td>}
+            <td>{side(p.a)}</td>
+            <td>{side(p.b)}</td>
+            {showCross && <td>{p.cross_product
+              ? <span className="scope-tag" title="These tools live in different products">⇄ cross-product</span>
+              : <span className="scope-tag" title="Both tools live in the same product">within product</span>}</td>}
+            <td><span className={`sim-badge ${p.score >= 0.75 ? 'high' : ''}`}
+              title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</span></td>
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
           </tr>)]
         if (open === k) rows.push(
-          <tr key={k + 'x'}><td colSpan={5} style={{ background: '#f8f9fa' }}>
+          <tr key={k + 'x'}><td colSpan={showCross ? 5 : 4} style={{ background: '#f8f9fa' }}>
             {detail === 'loading' ? <span className="muted">Analyzing…</span>
               : detail === 'error' ? <span className="muted">Couldn't load this comparison.</span>
               : <PairBreakdown ex={detail} />}

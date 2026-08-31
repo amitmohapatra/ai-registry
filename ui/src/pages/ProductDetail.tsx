@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiKey, Audience, downloadExport, Entity, Member, Product, User } from '../api'
 import { toast } from '../App'
-import { ConfirmButton, OverlapPairs, Sentinel, ToolInfo, viewAud } from '../components'
+import { avatarHue, avatarInitials, ConfirmButton, OverlapPairs, Sentinel, ToolInfo, viewAud } from '../components'
 import { PAGE_SIZE, PICKER_LIMIT, SEARCH_DEBOUNCE_MS } from '../config'
 
 export default function ProductDetail({ me }: { me: User | null }) {
@@ -205,12 +205,16 @@ function Members({ productKey, canEdit, isSuper }: { productKey: string; canEdit
       <div className="toolbar">
         <h2>Members</h2>
         {isSuper && <Link to="/users" className="muted" style={{ fontSize: 13 }}>Manage all people →</Link>}
-        {canEdit && <button className="primary small" onClick={() => { setShowAdd(v => !v); setErr('') }}>
-          {showAdd ? 'Cancel' : '+ Add member'}</button>}
+        {canEdit && <button className="primary small" onClick={() => { setShowAdd(true); setErr('') }}>
+          + Add member</button>}
       </div>
       {showAdd && canEdit && (
-        <form className="onboard-row" onSubmit={add}>
-          <div style={{ flex: 2, position: 'relative' }}>
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}>
+        <form className="modal" onSubmit={add}>
+          <h3>Add member</h3>
+          <p className="sub">Pick an existing account — create new accounts on the People page.</p>
+          <label>Person</label>
+          <div style={{ position: 'relative' }}>
             <input autoFocus placeholder="Search users by email or name…" value={email}
               autoComplete="off" name="member-picker" spellCheck={false}
               onChange={e => { setEmail(e.target.value); setPickOpen(true) }}
@@ -232,18 +236,29 @@ function Members({ productKey, canEdit, isSuper }: { productKey: string; canEdit
                 No matching account — create it on the People page first.</div></div>
             )}
           </div>
-          <select style={{ flex: 1 }} value={role} onChange={e => setRole(e.target.value)}>
+          <label>Role</label>
+          <select value={role} onChange={e => setRole(e.target.value)}>
             <option value="user">user (read-only)</option>
             <option value="admin">admin (can edit tools)</option>
           </select>
-          <button className="primary">Add</button>
-          {err && <div className="field-err" style={{ flexBasis: '100%' }}>{err}</div>}
+          {err && <div className="field-err" style={{ marginTop: 10 }}>{err}</div>}
+          <div className="modal-foot">
+            <button type="button" className="quiet" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="primary" disabled={!email}>Add</button>
+          </div>
         </form>
+        </div>
       )}
-      <table>
-        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th /></tr></thead>
+      <table className="people-table">
+        <colgroup><col /><col style={{ width: 220 }} /><col style={{ width: 48 }} /></colgroup>
+        <thead><tr><th>Member</th><th>Role</th><th /></tr></thead>
         <tbody>{members.map(m => (
-          <tr key={m.user_id}><td>{m.email}</td><td>{m.name}</td>
+          <tr key={m.user_id}>
+            <td><div className="person">
+              <span className="avatar" style={{ background: avatarHue(m.email) }}>{avatarInitials(m.name, m.email)}</span>
+              <div className="person-meta"><b>{m.name || m.email.split('@')[0]}</b>
+                <span title={m.email}>{m.email}</span></div>
+            </div></td>
             <td>{canEdit ? (
               <select style={{ width: 180 }} value={m.role}
                 title="Change this member's role — applies immediately"

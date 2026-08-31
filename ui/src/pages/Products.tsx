@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, downloadExport, errorText, Product, User } from '../api'
-import { OverlapPairs, viewAud } from '../components'
+import { avatarHue, OverlapPairs, viewAud } from '../components'
 import { validateProductKey } from '../validators'
 import { toast } from '../App'
 import { ConfirmButton } from '../components'
@@ -52,27 +52,23 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
           <div className="toolbar">
             <h2>Products</h2>
             {me?.is_super_admin && (
-              <button className="primary small" onClick={() => setShowOnboard(v => !v)}>
-                {showOnboard ? 'Cancel' : '+ Onboard product'}</button>
+              <button className="primary small" onClick={() => setShowOnboard(true)}>+ Onboard product</button>
             )}
           </div>
-          {showOnboard && me?.is_super_admin && (
-            <form className="onboard-row" onSubmit={create}>
-              <div style={{ flex: 1 }}><label>Key (slug)</label>
-                <input autoFocus value={key} onChange={e => setKey(e.target.value)} placeholder="billing" /></div>
-              <div style={{ flex: 2 }}><label>Display name</label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="Billing" /></div>
-              <button className="primary" style={{ alignSelf: 'end' }}>Create</button>
-              {err && <div className="err" style={{ flexBasis: '100%' }}>{err}</div>}
-            </form>
-          )}
-          <table>
-            <thead><tr><th>Product</th><th>Key</th><th>Your role</th><th>Seq</th><th /></tr></thead>
+          <table className="people-table">
+            <colgroup><col /><col style={{ width: 140 }} /><col style={{ width: 90 }} /><col style={{ width: 48 }} /></colgroup>
+            <thead><tr><th>Product</th><th>Your role</th><th>Seq</th><th /></tr></thead>
             <tbody>
               {products.map(p => (
                 <tr key={p.id}>
-                  <td><Link to={`/p/${p.key}`}><b>{p.name}</b></Link></td>
-                  <td className="score">{p.key}</td>
+                  <td><Link to={`/p/${p.key}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                    <div className="person">
+                      <span className="avatar" style={{ background: avatarHue(p.key), borderRadius: 8 }}>
+                        {p.name[0]?.toUpperCase()}</span>
+                      <div className="person-meta"><b>{p.name}</b>
+                        <span className="score" style={{ color: 'var(--muted)' }}>{p.key}</span></div>
+                    </div>
+                  </Link></td>
                   <td><span className={`pill ${p.role}`}>{p.role}</span></td>
                   <td className="score">{p.seq}</td>
                   <td>{me?.is_super_admin && <ConfirmButton icon
@@ -84,9 +80,27 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
                     }} />}</td>
                 </tr>
               ))}
-              {products.length === 0 && <tr><td colSpan={5} className="muted">No products yet.</td></tr>}
+              {products.length === 0 && <tr><td colSpan={4} className="muted">No products yet.</td></tr>}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showOnboard && me?.is_super_admin && (
+        <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setShowOnboard(false) }}>
+          <form className="modal" onSubmit={create}>
+            <h3>Onboard product</h3>
+            <p className="sub">The key is the stable slug used in URLs, API routes and SDK config.</p>
+            <label>Key (slug)</label>
+            <input autoFocus required value={key} onChange={e => setKey(e.target.value)} placeholder="billing" />
+            <label>Display name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Billing" />
+            {err && <div className="field-err" style={{ marginTop: 10 }}>{err}</div>}
+            <div className="modal-foot">
+              <button type="button" className="quiet" onClick={() => setShowOnboard(false)}>Cancel</button>
+              <button className="primary">Create</button>
+            </div>
+          </form>
         </div>
       )}
 

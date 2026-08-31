@@ -2,14 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { api, User } from '../api'
 import { errorText } from '../api'
 import { toast } from '../App'
-import { Sentinel } from '../components'
+import { avatarHue, avatarInitials, Sentinel } from '../components'
 import { ACCESS_CHIP_MAX, PAGE_SIZE, SEARCH_DEBOUNCE_MS } from '../config'
 import { validatePassword } from '../validators'
 
-const HUES = [210, 275, 160, 25, 340, 190, 95, 0]
-const hue = (s: string) => HUES[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length]
-const initials = (u: User) =>
-  (u.name || u.email).split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
 
 /* The People console: one place for the super admin to manage every account
    and its product access. Product admins keep their product's Members tab —
@@ -81,7 +77,7 @@ export default function UsersPage() {
             <tr key={u.id} style={u.is_active === false ? { opacity: .55 } : undefined}>
               <td>
                 <div className="person">
-                  <span className="avatar" style={{ background: `hsl(${hue(u.email)} 45% 46%)` }}>{initials(u)}</span>
+                  <span className="avatar" style={{ background: avatarHue(u.email) }}>{avatarInitials(u.name, u.email)}</span>
                   <div className="person-meta">
                     <b>{u.name || u.email.split('@')[0]}</b>
                     <span title={u.email}>{u.email}</span>
