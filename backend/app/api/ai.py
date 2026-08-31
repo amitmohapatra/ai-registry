@@ -320,7 +320,9 @@ async def resolve_pair(entity_id: str, other_id: str,
         if s1.get("packages"):
             return {"side": "a", "tool": {"id": a.id, "name": a.name,
                                           "product_key": prod_a.key if prod_a else ""},
-                    "packages": s1["packages"]}
+                    "current": {"name": a.name, "title": pa.get("title", ""),
+                                "description": pa.get("description", "")},
+                    "threshold": threshold, "packages": s1["packages"]}
         # side B verifies against ITS OWN neighborhood, never against itself —
         # scoring B's rewrite vs B's old text floors every candidate at
         # self-similarity and inflates the "verified" number
@@ -334,7 +336,9 @@ async def resolve_pair(entity_id: str, other_id: str,
         if s2.get("packages"):
             return {"side": "b", "tool": {"id": b.id, "name": b.name,
                                           "product_key": prod_b.key if prod_b else ""},
-                    "packages": s2["packages"]}
+                    "current": {"name": b.name, "title": pb.get("title", ""),
+                                "description": pb.get("description", "")},
+                    "threshold": threshold, "packages": s2["packages"]}
         return {"side": None, "template": s1.get("template"),
                 "tool": {"id": a.id, "name": a.name,
                          "product_key": prod_a.key if prod_a else ""}}

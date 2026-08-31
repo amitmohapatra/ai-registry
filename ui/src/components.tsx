@@ -144,14 +144,41 @@ export const avatarInitials = (name: string, email = '') =>
   (name || email).split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
 
 /* cross-product handoff: one source of truth for the report text and the
-   contact-the-admins action (Gmail compose prefilled — nothing auto-sends) */
-const handoffReport = (fix: any) =>
-  `Tool overlap needs a fix in ${fix.tool.product_key}: ` +
-  `${fix.tool.name}'s wording collides with another product's tool. ` +
-  `Verified fix: rename to ${fix.packages[0].name}, title "${fix.packages[0].title}", ` +
-  `description: "${fix.packages[0].description}" ` +
-  `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
-  `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`
+   contact-the-admins action (Gmail compose prefilled — nothing auto-sends).
+   Plain text on purpose — numbered blocks survive every mail client, real
+   table columns do not. */
+const handoffBody = (fix: any, pair: any) => {
+  const cur = fix.current ?? {}
+  const best = fix.packages[0]
+  const P = (x: number) => `${Math.round(x * 100)}%`
+  return [
+    `Hi ${fix.tool.product_key} team,`,
+    '',
+    'WHAT COLLIDES',
+    `  ${pair.a.product_key}/${pair.a.name}  <->  ${pair.b.product_key}/${pair.b.name}`,
+    `  similarity today: ${P(pair.score)} (flagged at >= ${P(fix.threshold ?? 0.5)})`,
+    '  why it matters: at this similarity AI agents cannot reliably choose between',
+    '  the two tools, so calls can land on the wrong product.',
+    '',
+    `VERIFIED FIX — apply on ${fix.tool.product_key}/${fix.tool.name}`,
+    '  1) name',
+    `     current  : ${cur.name ?? fix.tool.name}`,
+    `     change to: ${best.name}`,
+    '  2) title',
+    `     current  : ${cur.title || '(none)'}`,
+    `     change to: ${best.title}`,
+    '  3) description',
+    `     current  : ${cur.description ?? '(none)'}`,
+    `     change to: ${best.description}`,
+    '',
+    `RESULT: similarity drops ${P(pair.score)} -> ${P(best.new_overall)} — below the`,
+    'flagging threshold, verified against every product in the registry.',
+    '',
+    `Apply here: /p/${fix.tool.product_key}/tools/${fix.tool.id} (AI Registry)`,
+    '',
+    'Thanks!',
+  ].join('\n')
+}
 
 const gmailCompose = (to: string[], cc: string[], subject: string, body: string) =>
   window.open('https://mail.google.com/mail/?view=cm&fs=1'
@@ -162,13 +189,12 @@ const gmailCompose = (to: string[], cc: string[], subject: string, body: string)
 
 const handoffSubject = (fix: any) =>
   `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} needs a wording fix`
-const handoffBody = (fix: any) => handoffReport(fix) + '\n\nThanks!'
-const handoffEmailTemplate = (fix: any, to: string[], cc: string[]) =>
+const handoffEmailTemplate = (fix: any, pair: any, to: string[], cc: string[]) =>
   `To: ${to.join(', ')}\n` + (cc.length ? `Cc: ${cc.join(', ')}\n` : '')
-  + `Subject: ${handoffSubject(fix)}\n\n${handoffBody(fix)}`
+  + `Subject: ${handoffSubject(fix)}\n\n${handoffBody(fix, pair)}`
 
-function HandoffActions({ fix, canOpen, admins, supers }:
-  { fix: any; canOpen: boolean; admins: { email: string }[]; supers: { email: string }[] }) {
+function HandoffActions({ fix, pair, canOpen, admins, supers }:
+  { fix: any; pair: any; canOpen: boolean; admins: { email: string }[]; supers: { email: string }[] }) {
   if (canOpen) return (
     <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
       <button className="primary small">Open {fix.tool.name} →</button>
@@ -183,9 +209,9 @@ function HandoffActions({ fix, canOpen, admins, supers }:
           ? `Opens a prefilled Gmail draft to ${to.join(', ')}${cc.length ? `, cc ${cc.join(', ')}` : ''} — review and send`
           : 'That product has no admins yet — the draft goes to the super admins'}
         onClick={() => gmailCompose(to.length ? to : cc, to.length ? cc : [],
-          handoffSubject(fix), handoffBody(fix))}>✉ Email the admins</button>
+          handoffSubject(fix), handoffBody(fix, pair))}>✉ Email the admins</button>
       <button className="icon-act" title="Copy the full email (to, cc, subject and body) instead"
-        onClick={() => navigator.clipboard.writeText(handoffEmailTemplate(fix, to.length ? to : cc, to.length ? cc : []))}>⧉</button>
+        onClick={() => navigator.clipboard.writeText(handoffEmailTemplate(fix, pair, to.length ? to : cc, to.length ? cc : []))}>⧉</button>
     </span>)
 }
 
@@ -299,7 +325,7 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
                               <b className="score">{fix.tool.name}</b>.</>
                           )}
                         </span>
-                        <HandoffActions fix={fix} admins={otherAdmins} supers={otherSupers}
+                        <HandoffActions fix={fix} pair={p} admins={otherAdmins} supers={otherSupers}
                           canOpen={otherRole === 'admin' || otherRole === 'super_admin'} />
                       </div>
                     )
