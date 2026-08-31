@@ -76,6 +76,10 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
   suggestions are generate-and-tested worst-case against every product with
   meaning preserved (surgical sentence edits + retention guard). All knobs
   live in `app/tuning.py` and are super-admin overridable at runtime.
+  The flagging threshold is two-level: a registry default (super admin) and
+  an optional per-product override its admins set in Manage → Settings —
+  the materialized report is cut at the minimum of all thresholds so every
+  product's surfaces filter their own rows from the same scan.
 - **Generic entities.** `type = tool | agent` end-to-end — the Agent Registry
   (A2A agent cards) is an entity type, not a rewrite.
 
