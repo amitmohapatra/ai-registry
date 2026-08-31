@@ -153,29 +153,39 @@ const handoffReport = (fix: any) =>
   `(drops the match to ${Math.round(fix.packages[0].new_overall * 100)}%). ` +
   `Apply at /p/${fix.tool.product_key}/tools/${fix.tool.id} in the AI Registry.`
 
-const gmailCompose = (to: string[], subject: string, body: string) =>
+const gmailCompose = (to: string[], cc: string[], subject: string, body: string) =>
   window.open('https://mail.google.com/mail/?view=cm&fs=1'
     + `&to=${encodeURIComponent(to.join(','))}`
+    + (cc.length ? `&cc=${encodeURIComponent(cc.join(','))}` : '')
     + `&su=${encodeURIComponent(subject)}`
     + `&body=${encodeURIComponent(body)}`, '_blank')
 
-function HandoffActions({ fix, canOpen, admins }:
-  { fix: any; canOpen: boolean; admins: { email: string }[] }) {
+const handoffSubject = (fix: any) =>
+  `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} needs a wording fix`
+const handoffBody = (fix: any) => handoffReport(fix) + '\n\nThanks!'
+const handoffEmailTemplate = (fix: any, to: string[], cc: string[]) =>
+  `To: ${to.join(', ')}\n` + (cc.length ? `Cc: ${cc.join(', ')}\n` : '')
+  + `Subject: ${handoffSubject(fix)}\n\n${handoffBody(fix)}`
+
+function HandoffActions({ fix, canOpen, admins, supers }:
+  { fix: any; canOpen: boolean; admins: { email: string }[]; supers: { email: string }[] }) {
   if (canOpen) return (
     <RouterLink to={`/p/${fix.tool.product_key}/tools/${fix.tool.id}`}>
       <button className="primary small">Open {fix.tool.name} →</button>
     </RouterLink>)
+  const to = admins.map(a => a.email)
+  // super admins ride the CC line — minus anyone already a direct recipient
+  const cc = supers.map(a => a.email).filter(e => !to.includes(e))
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
       <button className="primary small"
-        title={admins.length
-          ? `Opens a prefilled Gmail draft to ${admins.map(a => a.email).join(', ')} — review and send`
-          : 'That product has no admins yet — email your super admin instead'}
-        onClick={() => gmailCompose(admins.map(a => a.email),
-          `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} needs a wording fix`,
-          handoffReport(fix) + '\n\nThanks!')}>✉ Email the admins</button>
-      <button className="icon-act" title="Copy the handoff report instead"
-        onClick={() => navigator.clipboard.writeText(handoffReport(fix))}>⧉</button>
+        title={to.length
+          ? `Opens a prefilled Gmail draft to ${to.join(', ')}${cc.length ? `, cc ${cc.join(', ')}` : ''} — review and send`
+          : 'That product has no admins yet — the draft goes to the super admins'}
+        onClick={() => gmailCompose(to.length ? to : cc, to.length ? cc : [],
+          handoffSubject(fix), handoffBody(fix))}>✉ Email the admins</button>
+      <button className="icon-act" title="Copy the full email (to, cc, subject and body) instead"
+        onClick={() => navigator.clipboard.writeText(handoffEmailTemplate(fix, to.length ? to : cc, to.length ? cc : []))}>⧉</button>
     </span>)
 }
 
@@ -213,6 +223,7 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   const [fixOpen, setFixOpen] = useState<number | null>(null)
   const [otherRole, setOtherRole] = useState<string | null>(null)
   const [otherAdmins, setOtherAdmins] = useState<{ email: string; name: string }[]>([])
+  const [otherSupers, setOtherSupers] = useState<{ email: string; name: string }[]>([])
   const pct = (x: number) => `${Math.round(x * 100)}%`
   const toggle = async (p: any) => {
     const k = p.a.id + p.b.id
@@ -226,7 +237,8 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
         api.product(out.tool.product_key) // THIS viewer act on it?
           .then((pr: any) => setOtherRole(pr.role)).catch(() => setOtherRole('none'))
         api.productAdmins(out.tool.product_key)   // …and who can, for the handoff email
-          .then(setOtherAdmins).catch(() => setOtherAdmins([]))
+          .then(r => { setOtherAdmins(r.admins); setOtherSupers(r.super_admins) })
+          .catch(() => { setOtherAdmins([]); setOtherSupers([]) })
       }
     }
   }
@@ -287,7 +299,7 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
                               <b className="score">{fix.tool.name}</b>.</>
                           )}
                         </span>
-                        <HandoffActions fix={fix} admins={otherAdmins}
+                        <HandoffActions fix={fix} admins={otherAdmins} supers={otherSupers}
                           canOpen={otherRole === 'admin' || otherRole === 'super_admin'} />
                       </div>
                     )

@@ -91,14 +91,18 @@ async def get_channel(product: Product = Depends(get_product),
 async def product_admins(product: Product = Depends(get_product),
                          _: User = Depends(current_user),
                          db: AsyncSession = Depends(get_session)):
-    """Admin CONTACTS for a product — who can act on a cross-product handoff.
-    Any signed-in user may read this (the user directory already exposes
-    emails org-wide); it deliberately returns admins only, never the roster."""
+    """CONTACTS who can act on a cross-product handoff: the product's admins
+    plus every super admin (for the CC line). Any signed-in user may read this
+    (the user directory already exposes emails org-wide); it deliberately
+    never returns the full member roster."""
     rows = (await db.execute(
         select(User).join(Membership, Membership.user_id == User.id)
         .where(Membership.product_id == product.id, Membership.role == "admin",
                User.is_active == True))).scalars().all()  # noqa: E712
-    return [{"email": u.email, "name": u.name} for u in rows]
+    supers = (await db.execute(select(User).where(
+        User.is_super_admin == True, User.is_active == True))).scalars().all()  # noqa: E712
+    return {"admins": [{"email": u.email, "name": u.name} for u in rows],
+            "super_admins": [{"email": u.email, "name": u.name} for u in supers]}
 
 
 # ---- members ----
