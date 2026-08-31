@@ -34,7 +34,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
   )
   if (!product) return null
   const canEdit = product.role === 'admin' || product.role === 'super_admin'
-  const tabs = ['tools', 'agents', 'overlaps', 'manage']
+  const tabs = ['tools', 'agents', 'overlaps', 'manage', 'audit']
   return (
     <>
       <div className="topbar">
@@ -54,10 +54,11 @@ export default function ProductDetail({ me }: { me: User | null }) {
         overlapIds={dups ? overlapIds : null} />}
       {tab === 'agents' && <Entities productKey={productKey} type="agent" canEdit={canEdit} />}
       {tab === 'overlaps' && <Duplicates productKey={productKey} />}
+      {tab === 'audit' && <Audit productKey={productKey} />}
       {tab === 'manage' && <>
         <div className="seg">
           {[['members', 'Members'], ['audiences', 'Audiences'],
-            ['settings', 'Settings'], ['audit', 'Audit']]
+            ['settings', 'Settings']]
             .map(([k, label]) => (
               <button key={k} className={manageTab === k ? 'active' : ''}
                 onClick={() => setManageTab(k)}>{label}</button>
@@ -73,7 +74,6 @@ export default function ProductDetail({ me }: { me: User | null }) {
           <Settings productKey={productKey} me={me} canEdit={canEdit} />
           <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />
         </>}
-        {manageTab === 'audit' && <Audit productKey={productKey} />}
       </>}
     </>
   )

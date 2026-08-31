@@ -527,7 +527,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 ))}
             </span>
           )}
-          {owns && !matches.suggestions && (
+          {(owns || checking) && !matches.suggestions && (
             <div className="sugg-row" style={{ marginTop: 8 }}>
               <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
             </div>
@@ -606,7 +606,7 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                     <span className="pkg-num">{i + 1}</span>
                     {p.name !== payload.name
                       ? <><b className="score">{p.name}</b><span className="muted">·</span></>
-                      : aud ? null : <span className="muted">keep the name —</span>}
+                      : <span className="muted">keep the name —</span>}
                     {p.title && p.title !== payload.title && (
                       <><span className="pkg-title">{p.title}</span><span className="muted">·</span></>
                     )}
@@ -744,8 +744,12 @@ function AudienceForm({ aud, overlay, basePayload, setOverlay, setTab, matches, 
     <div className="card">
       <SectionDraftBanner section={aud} draft={basePayload} published={savedPayload}
         discard={discardSection} />
-      <div className="toolbar">
-        <h2 style={{ margin: 0 }}>Overrides for <span className="pill aud">{aud}</span></h2>
+      <div className="toolbar" style={{ alignItems: 'baseline' }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Wording for <span className="pill aud">{aud}</span></h2>
+          <span className="muted" style={{ fontSize: 12.5 }}>
+            Inherits the external tab until overridden — parameters always follow external.</span>
+        </div>
         {!enabled && <span className="pill off">hidden — enable in Manage → Audience access</span>}
       </div>
       {enabled && (<>
