@@ -152,7 +152,7 @@ const handoffBody = (fix: any, pair: any) => {
   const best = fix.packages[0]
   const P = (x: number) => `${Math.round(x * 100)}%`
   return [
-    `Hi ${fix.tool.product_key} team,`,
+    'Hi team,',
     '',
     'WHAT COLLIDES',
     `  ${pair.a.product_key}/${pair.a.name}  <->  ${pair.b.product_key}/${pair.b.name}`,
@@ -161,8 +161,8 @@ const handoffBody = (fix: any, pair: any) => {
     '  the two tools, so calls can land on the wrong product.',
     '',
     `SUGGESTED CHANGES — for ${fix.tool.product_key}/${fix.tool.name}`,
-    '  These are recommendations, not requirements: any wording of your own',
-    '  works just as well — the tool editor re-checks similarity live as you',
+    '  These are recommendations, not requirements — feel free to change the',
+    '  wording your own way. The tool editor re-checks similarity live as you',
     '  type, so you can verify your version before publishing.',
     '  1) name',
     `     current   : ${cur.name ?? fix.tool.name}`,
