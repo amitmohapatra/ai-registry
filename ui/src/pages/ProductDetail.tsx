@@ -72,7 +72,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
         </>}
         {manageTab === 'settings' && <>
           <Settings productKey={productKey} me={me} canEdit={canEdit} />
-          <SimilaritySettings productKey={productKey} canEdit={me?.is_super_admin ?? false} />
+          <SimilaritySettings productKey={productKey} canEdit={canEdit} isSuper={me?.is_super_admin ?? false} />
         </>}
       </>}
     </>
@@ -462,23 +462,48 @@ function AudienceAccess({ productKey, canEdit, refresh = 0 }:
   )
 }
 
-function SimilaritySettings({ productKey, canEdit }: { productKey: string; canEdit: boolean }) {
+function SimilaritySettings({ productKey, canEdit, isSuper }:
+  { productKey: string; canEdit: boolean; isSuper: boolean }) {
   const [pct, setPct] = useState(50)
-  useEffect(() => { api.settingsGet(productKey).then(s => setPct(Math.round(s.similarity_threshold * 100))) }, [productKey])
+  const [def_, setDef] = useState(50)
+  const [overridden, setOverridden] = useState(false)
+  const [applyGlobal, setApplyGlobal] = useState(false)
+  const load = () => api.settingsGet(productKey).then((s: any) => {
+    setPct(Math.round(s.similarity_threshold * 100))
+    setDef(Math.round(s.registry_default * 100))
+    setOverridden(!!s.overridden)
+  })
+  useEffect(() => { load() }, [productKey])
   return (
     <div className="card">
-      <h2>Similarity threshold <span className="muted">(whole registry)</span></h2>
-      <p className="muted">One threshold for every product and every screen: the overlap report,
-        the editor's warnings and the suggestions all use exactly this value. Super admin only.</p>
+      <h2>Similarity threshold {overridden && <span className="pill aud">product override</span>}</h2>
+      <p className="muted">Flags overlaps for this product — its Overlaps tab, editor warnings and
+        suggestions — at or above this value. Registry default: <b>{def_}%</b>.
+        Product admins can set a different value for this product only.</p>
       <div className="row">
         <input type="range" min={5} max={95} step={5} value={pct} disabled={!canEdit}
           style={{ width: 220 }} onChange={e => setPct(Number(e.target.value))} />
         <b className="score" style={{ width: 46 }}>{pct}%</b>
         {canEdit && <button className="primary small" onClick={async () => {
-          await api.settingsSet(productKey, { similarity_threshold: pct / 100 })
-          toast(`Overlap threshold set to ${pct}%`)
+          await api.settingsSet(productKey, { similarity_threshold: pct / 100,
+            scope: applyGlobal ? 'global' : 'product' })
+          toast(applyGlobal ? `Registry default set to ${pct}%` : `This product now flags at ${pct}%`)
+          load()
         }}>Save</button>}
+        {canEdit && overridden && <button className="small" onClick={async () => {
+          await api.settingsSet(productKey, { similarity_threshold: def_ / 100, reset: true })
+          toast(`Back on the registry default (${def_}%)`)
+          load()
+        }}>Reset to registry default</button>}
       </div>
+      {isSuper && (
+        <label className="switch" style={{ marginTop: 8, display: 'inline-flex', gap: 6 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={applyGlobal}
+            onChange={e => setApplyGlobal(e.target.checked)} />
+          <span className="muted">Set as the registry default (applies to every product without
+            an override)</span>
+        </label>
+      )}
     </div>
   )
 }

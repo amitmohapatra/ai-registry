@@ -287,10 +287,18 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
     structurally impossible (no TTL to tune, nothing to expire)."""
     import hashlib
     import json as _json
-    from .ai import product_threshold, _score_gate
-    from ..models import Audience
+    from .ai import registry_default_threshold, _score_gate
+    from ..models import Audience, ProductSettings
 
-    th = await product_threshold(db)
+    th = await registry_default_threshold(db)
+    # products may run a STRICTER (lower) threshold than the default: the
+    # report is cut at the minimum so every product's surface can filter its
+    # own rows out of the same materialized scan
+    override_rows = (await db.execute(select(ProductSettings))).scalars().all()
+    overrides = {r.product_id: float(r.data["similarity_threshold"])
+                 for r in override_rows
+                 if "similarity_threshold" in (r.data or {})}
+    cutoff = min([th, *overrides.values()]) if overrides else th
     cands = await _candidates(db, "")
     aud_rows = (await db.execute(select(Audience.product_id, Audience.key))).all()
     auds_of: dict = {}
@@ -300,7 +308,8 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
 
     fp = hashlib.sha256(_json.dumps(
         [sorted((c["id"], c.get("v")) for c in cands),
-         sorted(map(list, aud_rows)), th], default=str).encode()).hexdigest()
+         sorted(map(list, aud_rows)), th, sorted(overrides.items())],
+        default=str).encode()).hexdigest()
     hit = _report_cache.get(fp)
     if hit is not None:
         return hit
@@ -340,12 +349,12 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
         def _scan():
             def base(x: str) -> str:
                 return x.split("::")[0]
-            pairs = duplicate_pairs(expanded, max(0.3, th * 0.6))
+            pairs = duplicate_pairs(expanded, max(0.3, cutoff * 0.6))
             pairs = [p for p in pairs if base(p["a"]["id"]) != base(p["b"]["id"])]
             pairs = rerank_pairs(pairs, {c["id"]: c["payload"] for c in expanded})
             out = []
             for p in pairs:                # every view combination is a real row:
-                if p["score"] < th:        # an aggregator can put ANY view of A
+                if p["score"] < cutoff:    # an aggregator can put ANY view of A
                     continue               # next to ANY view of B in one context
                 out.append({**p,
                             "a": {**p["a"], "id": base(p["a"]["id"])},
@@ -355,8 +364,8 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
         await db.close()      # release the pooled connection during CPU work
         async with _score_gate:                    # one heavy job at a time
             pairs = await asyncio.to_thread(_scan)
-        report = {"threshold": th, "pairs": pairs, "audience": "all",
-                  "audience_keys": audience_keys}
+        report = {"threshold": th, "cutoff": cutoff, "pairs": pairs,
+                  "audience": "all", "audience_keys": audience_keys}
         if len(_report_cache) >= _REPORT_CACHE_CAP:
             _report_cache.pop(next(iter(_report_cache)))
         _report_cache[fp] = report
@@ -415,11 +424,13 @@ async def duplicates(ctx: tuple = Depends(require_member), db: AsyncSession = De
     """A product's view: its own overlaps only. scope=product: both sides here;
     scope=cross: this product's tools vs OTHER products' tools only;
     scope=all: pairs involving this product (both of the above)."""
+    from .ai import product_threshold
     product, _, _ = ctx
     _ = audience                            # audience modes retired from the UI
+    th = threshold or await product_threshold(db, product.id)
     if scope == "product":
-        return await _build_duplicates(db, threshold, within_key=product.key)
-    return await _build_duplicates(db, threshold, involving_key=product.key,
+        return await _build_duplicates(db, th, within_key=product.key)
+    return await _build_duplicates(db, th, involving_key=product.key,
                                    cross_only=(scope == "cross"))
 
 
@@ -431,6 +442,9 @@ async def duplicates_all(db: AsyncSession = Depends(get_session),
                          _: object = Depends(current_user),
                          audience: str = Query(default="all", max_length=64),
                          threshold: float = Query(default=0.0)):
-    """Registry-wide overlaps — surfaced on the Products page."""
+    """Registry-wide overlaps — surfaced on the Products page, at the
+    registry default threshold (the report itself may be cut lower to serve
+    stricter products)."""
+    from .ai import registry_default_threshold
     _ = audience
-    return await _build_duplicates(db, threshold)
+    return await _build_duplicates(db, threshold or await registry_default_threshold(db))

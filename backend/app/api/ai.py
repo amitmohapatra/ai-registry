@@ -30,18 +30,34 @@ class DraftIn(BaseModel):
 
 class SettingsIn(BaseModel):
     similarity_threshold: float = 0.5
+    scope: str = "product"          # product: override THIS product (admins);
+                                    # global: registry default (super admin only)
+    reset: bool = False             # scope=product: drop the override instead
     tuning: dict | None = None      # optional overrides of app.tuning.DEFAULTS
 
 
-async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
-    """ONE threshold for the whole registry — every surface (overlap report,
-    editor warnings, suggestions) reads this same value."""
+async def registry_default_threshold(db: AsyncSession) -> float:
+    """The registry-wide default — what every product uses unless its admins
+    override it in Manage → Settings."""
     from ..config import get_settings
     from ..models import GlobalSettings
     row = (await db.execute(select(GlobalSettings))).scalars().first()
     if row and "similarity_threshold" in (row.data or {}):
         return float(row.data["similarity_threshold"])
     return get_settings().similarity_threshold
+
+
+async def product_threshold(db: AsyncSession, product_id: str = "") -> float:
+    """The threshold governing a product's surfaces (its overlap tab, editor
+    warnings, suggestions): the product override when its admins set one,
+    else the registry default."""
+    if product_id:
+        from ..models import ProductSettings
+        row = (await db.execute(select(ProductSettings).where(
+            ProductSettings.product_id == product_id))).scalars().first()
+        if row and "similarity_threshold" in (row.data or {}):
+            return float(row.data["similarity_threshold"])
+    return await registry_default_threshold(db)
 
 
 # Heavy cross-encoder scoring is pure CPU work. Run it in a worker thread so
@@ -62,38 +78,66 @@ async def registry_tuning(db: AsyncSession) -> dict:
     return tuning((row.data or {}).get("tuning") if row else None)
 
 
-@router.get("/settings", response_model=SettingsIn)
+@router.get("/settings")
 async def get_product_settings(ctx: tuple = Depends(require_member),
                                db: AsyncSession = Depends(get_session)):
+    from ..models import ProductSettings
     product, _, _ = ctx
-    return SettingsIn(similarity_threshold=await product_threshold(db, product.id))
+    default = await registry_default_threshold(db)
+    row = (await db.execute(select(ProductSettings).where(
+        ProductSettings.product_id == product.id))).scalars().first()
+    has_override = bool(row and "similarity_threshold" in (row.data or {}))
+    effective = float(row.data["similarity_threshold"]) if has_override else default
+    return {"similarity_threshold": effective, "registry_default": default,
+            "overridden": has_override}
 
 
 @router.put("/settings", status_code=204)
 async def set_settings(body: SettingsIn, ctx: tuple = Depends(require_member),
                        db: AsyncSession = Depends(get_session)):
-    """Registry-wide: only the super admin can change it (it affects every product)."""
-    from ..models import GlobalSettings
+    """scope=product: this product's threshold — its admins may change it.
+    scope=global: the registry default (and tuning) — super admin only."""
+    from ..models import GlobalSettings, ProductSettings
     product, actor, role = ctx
-    if role != "super_admin":
-        raise HTTPException(403, "Only the super admin can change the similarity threshold")
-    if not (0.05 <= body.similarity_threshold <= 0.99):
+    if role not in ("admin", "super_admin"):
+        raise HTTPException(403, "Only product admins can change the similarity threshold")
+    if not body.reset and not (0.05 <= body.similarity_threshold <= 0.99):
         raise HTTPException(422, "similarity_threshold must be between 0.05 and 0.99")
-    row = (await db.execute(select(GlobalSettings))).scalars().first()
-    if not row:
-        row = GlobalSettings(id=1)
-        db.add(row)
-    from ..tuning import DEFAULTS
-    patch = {"similarity_threshold": body.similarity_threshold}
-    if body.tuning is not None:
-        unknown = set(body.tuning) - set(DEFAULTS)
-        if unknown:
-            raise HTTPException(422, f"Unknown tuning keys: {', '.join(sorted(unknown))}")
-        patch["tuning"] = body.tuning
-    row.data = {**(row.data or {}), **patch}
-    await db.commit()
-    await audit(db, actor, "settings.set", "global", product.id,
-                {"similarity_threshold": body.similarity_threshold})
+
+    if body.scope == "product":
+        row = (await db.execute(select(ProductSettings).where(
+            ProductSettings.product_id == product.id))).scalars().first()
+        if body.reset:
+            if row and "similarity_threshold" in (row.data or {}):
+                row.data = {k: v for k, v in row.data.items() if k != "similarity_threshold"}
+        else:
+            if not row:
+                row = ProductSettings(product_id=product.id)
+                db.add(row)
+            row.data = {**(row.data or {}), "similarity_threshold": body.similarity_threshold}
+        await db.commit()
+        await audit(db, actor, "settings.set", "product", product.id,
+                    {"similarity_threshold": None if body.reset else body.similarity_threshold})
+    else:
+        if role != "super_admin":
+            raise HTTPException(403, "Only the super admin can change the registry default")
+        row = (await db.execute(select(GlobalSettings))).scalars().first()
+        if not row:
+            row = GlobalSettings(id=1)
+            db.add(row)
+        from ..tuning import DEFAULTS
+        patch = {"similarity_threshold": body.similarity_threshold}
+        if body.tuning is not None:
+            unknown = set(body.tuning) - set(DEFAULTS)
+            if unknown:
+                raise HTTPException(422, f"Unknown tuning keys: {', '.join(sorted(unknown))}")
+            patch["tuning"] = body.tuning
+        row.data = {**(row.data or {}), **patch}
+        await db.commit()
+        await audit(db, actor, "settings.set", "global", product.id,
+                    {"similarity_threshold": body.similarity_threshold})
+    from .entities import schedule_report_warm
+    schedule_report_warm()
 
 # ---------- similarity preview (pre-save) ----------
 
@@ -287,7 +331,7 @@ async def resolve_pair(entity_id: str, other_id: str,
     prod_a = await db.get(Product, a.product_id)
     prod_b = await db.get(Product, b.product_id)
     tune = await registry_tuning(db)
-    threshold = await product_threshold(db)
+    threshold = await product_threshold(db, a.product_id)
     cands = await _candidates(db, "")
     by_id = {c["id"]: c["payload"] for c in cands}
     taken = {c["name"] for c in cands}

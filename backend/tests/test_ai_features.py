@@ -85,29 +85,54 @@ async def test_scores_never_negative_and_no_mirrored_pairs(client):
         assert p["score"] >= 0
 
 
-async def test_global_threshold_setting(client):
+async def test_threshold_settings(client):
     su = await login(client)
     await make_product(client, su, "p1")
     await make_product(client, su, "p2")
     assert (await client.get("/v1/products/p1/settings", headers=su)).json() == \
-        {"similarity_threshold": 0.5, "tuning": None}
-    # super admin sets it ONCE -> every product reports the same value
+        {"similarity_threshold": 0.5, "registry_default": 0.5, "overridden": False}
+    # super admin sets the REGISTRY DEFAULT once -> every product follows
     r = await client.put("/v1/products/p1/settings",
-                         json={"similarity_threshold": 0.7}, headers=su)
+                         json={"similarity_threshold": 0.7, "scope": "global"}, headers=su)
     assert r.status_code == 204
     for pk in ("p1", "p2"):
         assert (await client.get(f"/v1/products/{pk}/settings",
                                  headers=su)).json()["similarity_threshold"] == 0.7
         assert (await client.get(f"/v1/products/{pk}/entities/reports/duplicates",
                                  headers=su)).json()["threshold"] == 0.7
-    # product admins cannot change a registry-wide setting
+    # a PRODUCT ADMIN may override their own product...
     from .conftest import make_user
     await make_user(client, su, "alice@co.com")
     await client.put("/v1/products/p1/members",
                      json={"email": "alice@co.com", "role": "admin"}, headers=su)
     alice = await login(client, "alice@co.com", "secret1")
     assert (await client.put("/v1/products/p1/settings",
-                             json={"similarity_threshold": 0.6}, headers=alice)).status_code == 403
+                             json={"similarity_threshold": 0.6}, headers=alice)).status_code == 204
+    s = (await client.get("/v1/products/p1/settings", headers=alice)).json()
+    assert s == {"similarity_threshold": 0.6, "registry_default": 0.7, "overridden": True}
+    assert (await client.get("/v1/products/p1/entities/reports/duplicates",
+                             headers=alice)).json()["threshold"] == 0.6
+    # ...p2 keeps the registry default
+    assert (await client.get("/v1/products/p2/settings",
+                             headers=su)).json() == \
+        {"similarity_threshold": 0.7, "registry_default": 0.7, "overridden": False}
+    # ...but cannot touch the registry default
+    assert (await client.put("/v1/products/p1/settings",
+                             json={"similarity_threshold": 0.6, "scope": "global"},
+                             headers=alice)).status_code == 403
+    # plain members cannot change anything
+    await make_user(client, su, "bob@co.com")
+    await client.put("/v1/products/p1/members",
+                     json={"email": "bob@co.com", "role": "user"}, headers=su)
+    bob = await login(client, "bob@co.com", "secret1")
+    assert (await client.put("/v1/products/p1/settings",
+                             json={"similarity_threshold": 0.6}, headers=bob)).status_code == 403
+    # reset drops the override -> back on the default
+    assert (await client.put("/v1/products/p1/settings",
+                             json={"similarity_threshold": 0.6, "reset": True},
+                             headers=alice)).status_code == 204
+    assert (await client.get("/v1/products/p1/settings", headers=alice)).json() == \
+        {"similarity_threshold": 0.7, "registry_default": 0.7, "overridden": False}
     # bounds enforced
     assert (await client.put("/v1/products/p1/settings",
                              json={"similarity_threshold": 1.5}, headers=su)).status_code == 422
