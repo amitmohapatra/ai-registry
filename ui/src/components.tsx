@@ -160,19 +160,22 @@ const handoffBody = (fix: any, pair: any) => {
     '  why it matters: at this similarity AI agents cannot reliably choose between',
     '  the two tools, so calls can land on the wrong product.',
     '',
-    `VERIFIED FIX — apply on ${fix.tool.product_key}/${fix.tool.name}`,
+    `SUGGESTED CHANGES — for ${fix.tool.product_key}/${fix.tool.name}`,
+    '  These are recommendations, not requirements: any wording of your own',
+    '  works just as well — the tool editor re-checks similarity live as you',
+    '  type, so you can verify your version before publishing.',
     '  1) name',
-    `     current  : ${cur.name ?? fix.tool.name}`,
-    `     change to: ${best.name}`,
+    `     current   : ${cur.name ?? fix.tool.name}`,
+    `     suggested : ${best.name}`,
     '  2) title',
-    `     current  : ${cur.title || '(none)'}`,
-    `     change to: ${best.title}`,
+    `     current   : ${cur.title || '(none)'}`,
+    `     suggested : ${best.title}`,
     '  3) description',
-    `     current  : ${cur.description ?? '(none)'}`,
-    `     change to: ${best.description}`,
+    `     current   : ${cur.description ?? '(none)'}`,
+    `     suggested : ${best.description}`,
     '',
-    `RESULT: similarity drops ${P(pair.score)} -> ${P(best.new_overall)} — below the`,
-    'flagging threshold, verified against every product in the registry.',
+    `RESULT: with the suggested wording, similarity drops ${P(pair.score)} -> ${P(best.new_overall)}`,
+    '— below the flagging threshold, verified against every product in the registry.',
     '',
     `Apply here: /p/${fix.tool.product_key}/tools/${fix.tool.id} (AI Registry)`,
     '',
@@ -188,7 +191,7 @@ const gmailCompose = (to: string[], cc: string[], subject: string, body: string)
     + `&body=${encodeURIComponent(body)}`, '_blank')
 
 const handoffSubject = (fix: any) =>
-  `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} needs a wording fix`
+  `[AI Registry] Tool overlap: ${fix.tool.product_key}/${fix.tool.name} — suggested wording changes`
 const handoffEmailTemplate = (fix: any, pair: any, to: string[], cc: string[]) =>
   `To: ${to.join(', ')}\n` + (cc.length ? `Cc: ${cc.join(', ')}\n` : '')
   + `Subject: ${handoffSubject(fix)}\n\n${handoffBody(fix, pair)}`
