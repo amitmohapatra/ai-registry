@@ -243,6 +243,14 @@ export default function ToolEditor() {
         setVersion(e.version); setSaved(`Saved as v${e.version} — SDKs updated live.`)
         toast(`Saved v${e.version} — live everywhere`)
         loadVersions(0)
+        // published state changed: re-verify from scratch — the signature gate
+        // and kept packages would otherwise keep showing pre-publish analysis
+        lastCheckSig.current = ''
+        setChecking(true)
+        api.similarPreview(productKey, { type: 'tool', suggestions: true,
+          view: tab === 'base' ? 'base' : audiences.includes(tab) ? tab : 'base',
+          payload: { ...payload, _entity_id: entityId } })
+          .then(setMatches).catch(() => {}).finally(() => setChecking(false))
       }
     } catch (ex) {
       if (ex instanceof ApiError && ex.validationErrors.length) setErrors(ex.validationErrors)
