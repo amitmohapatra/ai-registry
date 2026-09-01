@@ -123,7 +123,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
                 ? <span className="dot red" /> : <span className="dot green" />)}
               Overlapping tools across all products
             </h2>
-            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
               {overlaps && <span className="muted" style={{ marginRight: 6 }}>
                 {overlaps.pairs.length === 0 ? `none flagged`
                   : `flagged at each pair's stricter owner's threshold (default ${Math.round(overlaps.threshold * 100)}%)`}</span>}
