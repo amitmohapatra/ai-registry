@@ -64,6 +64,13 @@ export default function ToolEditor() {
 
   const [loadErr, setLoadErr] = useState<number | null>(null)
   useEffect(() => {
+    // the route pattern is shared, so jumping editor -> editor REUSES this
+    // component: reset every per-tool state or the previous tool's tab and
+    // check results leak into the next one
+    setTab('base'); setMatches(null); setSavedReport(null)
+    setVersions([]); setVersionsTotal(0); setErrors([]); setSaved('')
+    setStaleDraft(null); setLoadErr(null); setSimScope('all')
+    lastCheckSig.current = ''
     api.product(productKey).then(p => setCanEdit(p.role === 'admin' || p.role === 'super_admin'))
       .catch(e => setLoadErr(e?.status ?? 500))
     api.audiences(productKey).then(a => setAudiences(a.map(x => x.key))).catch(() => {})
