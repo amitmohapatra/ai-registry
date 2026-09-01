@@ -42,6 +42,7 @@ export default function ToolEditor() {
   const [payload, setPayload] = useState<any>(emptyPayload())
   const [audiences, setAudiences] = useState<string[]>(['external'])
   const [tab, setTab] = useState<string>('base')
+  const [simScope, setSimScope] = useState('all')  // Similar tab: all | cross | product
   const [errors, setErrors] = useState<ValidationErr[]>([])
   const [preview, setPreview] = useState<any>(null)
   const [versions, setVersions] = useState<any[]>([])
@@ -341,11 +342,22 @@ export default function ToolEditor() {
 
       {tab === 'similar' && !isNew && (
         <div className="card">
-          <h2>{savedReport && (savedReport.pairs.length
-              ? <span className="dot red" /> : <span className="dot green" />)}
-            Similar tools <span className="muted">(as published — one row per audience view, same
-            numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
-          <OverlapPairs report={savedReport} showCross={false}
+          <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
+            <h2 style={{ margin: 0 }}>{savedReport && (savedReport.pairs.length
+                ? <span className="dot red" /> : <span className="dot green" />)}
+              Similar tools <span className="muted">(as published — one row per audience view, same
+              numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
+            <select style={{ width: 160, marginLeft: 'auto', flex: 'none' }} value={simScope}
+              onChange={e => setSimScope(e.target.value)}>
+              <option value="all">All</option>
+              <option value="cross">Cross-product</option>
+              <option value="product">Within product</option>
+            </select>
+          </div>
+          <OverlapPairs showCross={false}
+            report={savedReport && { ...savedReport,
+              pairs: savedReport.pairs.filter((p: any) => simScope === 'all'
+                || (simScope === 'cross' ? p.cross_product : !p.cross_product)) }}
             productKey={productKey} selfId={entityId}
             onSelf={() => setTab('base')}
             labels={['This tool', 'Overlaps with']}
