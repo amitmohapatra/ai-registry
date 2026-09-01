@@ -165,8 +165,8 @@ function Duplicates({ productKey }: { productKey: string }) {
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Overlapping tools</h2>
         <div className="row">
-          {report && <span className="muted">flagging ≥ {Math.round(report.threshold * 100)}% — adjust in
-            Manage → Similarity</span>}
+          {report && <span className="muted" title="This product's similarity threshold — adjust in Manage → Settings">
+            threshold ≥ {Math.round(report.threshold * 100)}%</span>}
           <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
             <option value="all">All</option>
             <option value="cross">Cross-product</option>
