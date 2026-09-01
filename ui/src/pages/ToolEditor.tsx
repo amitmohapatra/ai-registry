@@ -346,6 +346,8 @@ export default function ToolEditor() {
             Similar tools <span className="muted">(as published — one row per audience view, same
             numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
           <OverlapPairs report={savedReport} showCross={false}
+            productKey={productKey} selfId={entityId}
+            onSelf={() => setTab('base')}
             labels={['This tool', 'Overlaps with']}
             explain={p => api.explainPair(productKey, p.a.id, p.b.id,
               viewAud(p.a.view), viewAud(p.b.view))}

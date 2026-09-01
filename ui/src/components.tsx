@@ -236,7 +236,7 @@ export function Sentinel({ onHit }: { onHit: () => void }) {
 }
 
 export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, showCross = true,
-  labels = ['Tool A', 'Tool B'], productKey }: {
+  labels = ['Tool A', 'Tool B'], productKey, selfId, onSelf }: {
   report: { threshold: number; pairs: any[] } | null
   explain: (p: any) => Promise<any>
   resolve?: (p: any) => Promise<any>
@@ -244,7 +244,10 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   showCross?: boolean
   labels?: [string, string]
   productKey?: string          // the product page this table sits on, if any —
-}) {                           // banner wording is relative to the VIEWER
+                               // banner wording is relative to the VIEWER
+  selfId?: string              // the tool being EDITED, when inside its editor
+  onSelf?: () => void          // jump to that tool's resolution UI (tab switch)
+}) {
   const [open, setOpen] = useState('')
   const [visible, setVisible] = useState(cap)
   const [detail, setDetail] = useState<any>('idle')
@@ -315,7 +318,19 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
               fix.side ? (
                 <div style={{ marginTop: 8 }}>
                   {(() => {
+                    const self = selfId && fix.tool.id === selfId
                     const local = fix.tool.product_key === productKey
+                    if (self) return (
+                      <div className="handoff">
+                        <span className="dot green" style={{ marginTop: 2 }} />
+                        <span style={{ flex: 1 }}>
+                          <b>The fix is on this very tool</b> — pick one of the verified
+                          resolutions on its wording tab.
+                        </span>
+                        {onSelf && <button className="primary small" onClick={onSelf}>
+                          Go to the resolution →</button>}
+                      </div>
+                    )
                     return (
                       <div className="handoff">
                         <span className={'dot ' + (local ? 'green' : 'red')} style={{ marginTop: 2 }} />
