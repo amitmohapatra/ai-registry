@@ -442,9 +442,25 @@ async def duplicates_all(db: AsyncSession = Depends(get_session),
                          _: object = Depends(current_user),
                          audience: str = Query(default="all", max_length=64),
                          threshold: float = Query(default=0.0)):
-    """Registry-wide overlaps — surfaced on the Products page, at the
-    registry default threshold (the report itself may be cut lower to serve
-    stricter products)."""
+    """Registry-wide overlaps: the UNION of every product's flagged pairs.
+    One rule everywhere — a pair is flagged when the stricter of its two
+    owning products flags it — so any row on any product page is visible
+    here, and nothing appears that no owner cares about. Each row carries
+    flagged_at: the bar that caught it."""
     from .ai import registry_default_threshold
+    from ..models import Product, ProductSettings
     _ = audience
-    return await _build_duplicates(db, threshold or await registry_default_threshold(db))
+    if threshold:                    # explicit API override: flat refilter
+        return await _build_duplicates(db, threshold)
+    report = await registry_overlap_report(db)
+    default = await registry_default_threshold(db)
+    rows = (await db.execute(
+        select(Product.key, ProductSettings.data)
+        .join(ProductSettings, ProductSettings.product_id == Product.id))).all()
+    th_of = {k: float(d["similarity_threshold"]) for k, d in rows
+             if "similarity_threshold" in (d or {})}
+    def bar(p: dict) -> float:
+        return min(th_of.get(p["a"]["product_key"], default),
+                   th_of.get(p["b"]["product_key"], default))
+    pairs = [{**p, "flagged_at": bar(p)} for p in report["pairs"] if p["score"] >= bar(p)]
+    return {**report, "threshold": default, "pairs": pairs}

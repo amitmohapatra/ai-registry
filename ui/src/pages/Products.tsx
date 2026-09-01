@@ -114,7 +114,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
             </h2>
             {overlaps && <span className="muted">
               {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
-                : `flagging ≥ ${Math.round(overlaps.threshold * 100)}% — internal-text rows are tagged`}</span>}
+                : `each pair is flagged at its stricter owner's threshold (default ${Math.round(overlaps.threshold * 100)}%) — internal-text rows are tagged`}</span>}
           </div>
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
             : <OverlapPairs report={overlaps}

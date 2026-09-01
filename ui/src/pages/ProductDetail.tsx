@@ -156,7 +156,7 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
 }
 
 function Duplicates({ productKey }: { productKey: string }) {
-  const [scope, setScope] = useState('cross')
+  const [scope, setScope] = useState('all')
   const [report, setReport] = useState<{ threshold: number; pairs: any[] } | null>(null)
   useEffect(() => { setReport(null); api.duplicates(productKey, scope).then(setReport) },
     [productKey, scope])
@@ -168,6 +168,7 @@ function Duplicates({ productKey }: { productKey: string }) {
           {report && <span className="muted">flagging ≥ {Math.round(report.threshold * 100)}% — adjust in
             Manage → Similarity</span>}
           <select style={{ width: 220 }} value={scope} onChange={e => setScope(e.target.value)}>
+            <option value="all">All</option>
             <option value="cross">Cross-product</option>
             <option value="product">Within this product only</option>
           </select>

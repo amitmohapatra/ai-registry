@@ -302,7 +302,13 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
               ? <span className="scope-tag" title="These tools live in different products">⇄ cross-product</span>
               : <span className="scope-tag" title="Both tools live in the same product">within product</span>}</td>}
             <td><span className={`sim-badge ${p.score >= 0.75 ? 'high' : ''}`}
-              title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</span></td>
+              title={(p.flagged_at != null && report && p.flagged_at < report.threshold
+                ? `flagged by a product running a ${Math.round(p.flagged_at * 100)}% threshold — `
+                : '') + `internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</span>
+              {p.flagged_at != null && report && p.flagged_at < report.threshold &&
+                <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}
+                  title="A product owning this pair runs a stricter threshold than the registry default">
+                  @{Math.round(p.flagged_at * 100)}%</span>}</td>
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
           </tr>)]
         if (open === k) rows.push(

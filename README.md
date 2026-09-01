@@ -79,7 +79,12 @@ Then: onboard a product → add audiences → create tools → issue an SDK API 
   The flagging threshold is two-level: a registry default (super admin) and
   an optional per-product override its admins set in Manage → Settings —
   the materialized report is cut at the minimum of all thresholds so every
-  product's surfaces filter their own rows from the same scan.
+  product's surfaces filter their own rows from the same scan. One flagging
+  rule everywhere: a pair is flagged when the STRICTER of its two owning
+  products flags it — a product page shows pairs at its own bar, the global
+  Overlaps page shows the union of every product's flagged pairs (each row
+  tagged with the bar that caught it), and a tool's Similar tab is its
+  product's view scoped to that tool.
 - **Generic entities.** `type = tool | agent` end-to-end — the Agent Registry
   (A2A agent cards) is an entity type, not a rewrite.
 
