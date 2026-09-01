@@ -278,11 +278,14 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   const pairs = report?.pairs ?? []
   useEffect(() => { setVisible(cap) }, [report, cap])
   const shown = pairs.slice(0, visible)
+  // the global union report tags each pair with the bar that caught it —
+  // surface that as its own column instead of a sub-badge
+  const showTh = pairs.some((p: any) => p.flagged_at != null)
   return (
     <>
     <table className="overlap-table">
-      <colgroup><col /><col />{showCross && <col style={{ width: 120 }} />}<col style={{ width: 92 }} /><col style={{ width: 90 }} /></colgroup>
-      <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th>{showCross && <th>Scope</th>}<th>Similarity</th><th /></tr></thead>
+      <colgroup><col /><col />{showCross && <col style={{ width: 120 }} />}{showTh && <col style={{ width: 96 }} />}<col style={{ width: 92 }} /><col style={{ width: 90 }} /></colgroup>
+      <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th>{showCross && <th>Scope</th>}{showTh && <th>Threshold</th>}<th>Similarity</th><th /></tr></thead>
       <tbody>{shown.flatMap((p, i) => {
         const k = pairKey(p)
         const side = (s: any) => (
@@ -301,18 +304,15 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
             {showCross && <td>{p.cross_product
               ? <span className="scope-tag" title="These tools live in different products">⇄ cross-product</span>
               : <span className="scope-tag" title="Both tools live in the same product">within product</span>}</td>}
+            {showTh && <td><span className="scope-tag"
+              title="The bar governing this pair — the stricter of its two owners' thresholds">
+              ≥ {Math.round((p.flagged_at ?? report?.threshold ?? 0) * 100)}%</span></td>}
             <td><span className={`sim-badge ${p.score >= 0.75 ? 'high' : ''}`}
-              title={(p.flagged_at != null && report && p.flagged_at < report.threshold
-                ? `flagged by a product running a ${Math.round(p.flagged_at * 100)}% threshold — `
-                : '') + `internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</span>
-              {p.flagged_at != null && report && p.flagged_at < report.threshold &&
-                <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}
-                  title="A product owning this pair runs a stricter threshold than the registry default">
-                  @{Math.round(p.flagged_at * 100)}%</span>}</td>
+              title={`internal retrieval score: ${p.cosine ?? p.score}`}>{pct(p.score)}</span></td>
             <td className="detail-cell">{open === k ? '▾ Hide' : '▸ Details'}</td>
           </tr>)]
         if (open === k) rows.push(
-          <tr key={k + 'x'}><td colSpan={showCross ? 5 : 4} style={{ background: '#f8f9fa' }}>
+          <tr key={k + 'x'}><td colSpan={4 + (showCross ? 1 : 0) + (showTh ? 1 : 0)} style={{ background: '#f8f9fa' }}>
             {detail === 'loading' ? <span className="muted">Analyzing…</span>
               : detail === 'error' ? <span className="muted">Couldn't load this comparison.</span>
               : <PairBreakdown ex={detail} />}
