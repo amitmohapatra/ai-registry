@@ -347,7 +347,10 @@ export default function ToolEditor() {
                 ? <span className="dot red" /> : <span className="dot green" />)}
               Similar tools <span className="muted">(published wording — your draft is checked
               live on the external and internal tabs)</span></h2>
-            <select style={{ width: 160, marginLeft: 'auto', flex: 'none' }} value={simScope}
+            {savedReport && <span className="muted" style={{ marginLeft: 'auto', flex: 'none' }}
+              title="This product's similarity threshold — adjust in Manage → Settings">
+              threshold ≥ {Math.round(savedReport.threshold * 100)}%</span>}
+            <select style={{ width: 160, flex: 'none' }} value={simScope}
               onChange={e => setSimScope(e.target.value)}>
               <option value="all">All scopes</option>
               <option value="cross">Cross-product</option>
