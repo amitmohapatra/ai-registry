@@ -38,10 +38,28 @@ export function ConfirmButton({ label, confirmLabel = 'Sure?', title, onConfirm,
 /** Shared similarity-breakdown renderer — numbers that visibly add up to the
  * headline, honest severity colors, and justified parameter scores. Used by
  * the overlap drawer and the editor's similar panel so they can never drift. */
+/* round contribution percentages so the displayed integers sum EXACTLY to
+   the displayed overall (largest-remainder method) — per-chip rounding
+   otherwise shows 24+10+10+2 = 46 next to a 45% badge */
+export function roundedShares(contributions: Record<string, number>, fields: string[],
+  overall: number): Record<string, number> {
+  const totalPct = Math.round(overall * 100)
+  const raw = fields.map(f => (contributions[f] ?? 0) * 100)
+  const floors = raw.map(Math.floor)
+  let left = totalPct - floors.reduce((a, b) => a + b, 0)
+  const order = raw.map((v, i) => [v - floors[i], i] as const)
+    .sort((a, b) => b[0] - a[0]).map(([, i]) => i)
+  const out = [...floors]
+  for (let k = 0; left > 0 && k < order.length; k++, left--) out[order[k]] += 1
+  for (let k = order.length - 1; left < 0 && k >= 0; k--, left++) out[order[k]] -= 1
+  return Object.fromEntries(fields.map((f, i) => [f, out[i]]))
+}
+
 export function PairBreakdown({ ex }: { ex: any }) {
   const pct = (v: number) => `${Math.round(v * 100)}%`
   const order = ['description', 'parameters', 'name', 'title']
   const fields = order.filter(f => f in (ex.contributions ?? {}))
+  const shares = roundedShares(ex.contributions ?? {}, fields, ex.overall ?? 0)
   return (
     <div>
       {ex.contributions && (
@@ -50,7 +68,7 @@ export function PairBreakdown({ ex }: { ex: any }) {
             <span key={f} className="param-op" style={{ marginRight: 6 }}
               title={`${f}: ${pct(ex.subscores?.[f] ?? 0)} similar${f === 'parameters' && ex.params
                 ? ` (this: ${ex.params.a.join(', ') || 'none'} · other: ${ex.params.b.join(', ') || 'none'})` : ''}`}>
-              {f} {pct(ex.contributions[f] ?? 0)}
+              {f} {shares[f]}%
             </span>
           ))}
           <b className="score">= {pct(ex.overall ?? 0)}</b>

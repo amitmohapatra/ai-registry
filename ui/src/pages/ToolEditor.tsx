@@ -3,7 +3,7 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError, Similar, ValidationErr } from '../api'
 import { toast } from '../App'
 import SchemaTree from '../SchemaTree'
-import { OverlapPairs, Sentinel, viewAud } from '../components'
+import { OverlapPairs, roundedShares, Sentinel, viewAud } from '../components'
 import { CHECK_BOUNDARY_MS, CHECK_MIDWORD_MS, PAGE_SIZE } from '../config'
 
 type Overlay = { enabled?: boolean; overrides?: any }
@@ -547,18 +547,21 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
           {(matches as any).flagged_audience && <span className="muted"> · driven by your <b>{(matches as any).flagged_audience}</b> override text</span>}
           {(top as any).match_view && (top as any).match_view !== 'base' && <span className="muted"> · vs their <b>{(top as any).match_view}</b> text</span>}
           {checking && <span className="muted"> · rechecking…</span>}
-          {(top as any).breakdown?.contributions && (
+          {(top as any).breakdown?.contributions && (() => {
+            const bd = (top as any).breakdown
+            const fs = ['description', 'parameters', 'name', 'title'].filter(f => f in bd.contributions)
+            const shares = roundedShares(bd.contributions, fs, top.score)
+            return (
             <span style={{ marginLeft: 10, fontWeight: 400 }}>
-              {['description', 'parameters', 'name', 'title']
-                .filter(f => f in (top as any).breakdown.contributions)
-                .map(f => (
+              {fs.map(f => (
                   <span key={f} className="param-op" style={{ marginRight: 5 }}
-                    title={`${f}: ${Math.round(((top as any).breakdown.subscores?.[f] ?? 0) * 100)}% similar`}>
-                    {f} {Math.round(((top as any).breakdown.contributions[f] ?? 0) * 100)}%
+                    title={`${f}: ${Math.round((bd.subscores?.[f] ?? 0) * 100)}% similar`}>
+                    {f} {shares[f]}%
                   </span>
                 ))}
             </span>
-          )}
+            )
+          })()}
           {(owns || checking) && !matches.suggestions && (
             <div className="sugg-row" style={{ marginTop: 8 }}>
               <span className="rescore"><span className="spin" /> finding verified resolutions…</span>
