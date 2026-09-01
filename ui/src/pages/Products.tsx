@@ -134,7 +134,7 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
               </select>
               <select style={{ width: 150 }} value={scopeFilter}
                 onChange={e => setScopeFilter(e.target.value)}>
-                <option value="all">All</option>
+                <option value="all">All scopes</option>
                 <option value="cross">Cross-product</option>
                 <option value="product">Within product</option>
               </select>

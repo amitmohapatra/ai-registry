@@ -349,12 +349,12 @@ export default function ToolEditor() {
               live on the external and internal tabs)</span></h2>
             <select style={{ width: 160, marginLeft: 'auto', flex: 'none' }} value={simScope}
               onChange={e => setSimScope(e.target.value)}>
-              <option value="all">All</option>
+              <option value="all">All scopes</option>
               <option value="cross">Cross-product</option>
               <option value="product">Within product</option>
             </select>
           </div>
-          <OverlapPairs showCross={false}
+          <OverlapPairs
             report={savedReport && { ...savedReport,
               pairs: savedReport.pairs.filter((p: any) => simScope === 'all'
                 || (simScope === 'cross' ? p.cross_product : !p.cross_product)) }}
