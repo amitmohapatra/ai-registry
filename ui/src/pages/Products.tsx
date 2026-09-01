@@ -124,9 +124,8 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
               Overlapping tools across all products
             </h2>
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-              {overlaps && <span className="muted" style={{ marginRight: 6 }}>
-                {overlaps.pairs.length === 0 ? `none flagged`
-                  : `flagged at each pair's stricter owner's threshold (default ${Math.round(overlaps.threshold * 100)}%)`}</span>}
+              {overlaps && overlaps.pairs.length === 0 &&
+                <span className="muted" style={{ marginRight: 6 }}>none flagged</span>}
               <select style={{ width: 160 }} value={prodFilter}
                 title="Only pairs involving this product"
                 onChange={e => setProdFilter(e.target.value)}>
