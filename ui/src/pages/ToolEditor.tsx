@@ -345,8 +345,8 @@ export default function ToolEditor() {
           <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
             <h2 style={{ margin: 0 }}>{savedReport && (savedReport.pairs.length
                 ? <span className="dot red" /> : <span className="dot green" />)}
-              Similar tools <span className="muted">(as published — one row per audience view, same
-              numbers as the overlap pages; the warning on Base tracks your draft live)</span></h2>
+              Similar tools <span className="muted">(published wording — your draft is checked
+              live on the external and internal tabs)</span></h2>
             <select style={{ width: 160, marginLeft: 'auto', flex: 'none' }} value={simScope}
               onChange={e => setSimScope(e.target.value)}>
               <option value="all">All</option>
