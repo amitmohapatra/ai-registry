@@ -254,8 +254,9 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
   const [otherAdmins, setOtherAdmins] = useState<{ email: string; name: string }[]>([])
   const [otherSupers, setOtherSupers] = useState<{ email: string; name: string }[]>([])
   const pct = (x: number) => `${Math.round(x * 100)}%`
+  const pairKey = (p: any) => [p.a.id, p.a.view ?? '', p.b.id, p.b.view ?? ''].join('|')
   const toggle = async (p: any) => {
-    const k = p.a.id + p.b.id
+    const k = pairKey(p)
     if (open === k) { setOpen(''); setDetail('idle'); setFix('idle'); return }
     setOpen(k); setDetail('loading'); setFix(resolve ? 'loading' : 'idle'); setFixOpen(null)
     setDetail(await explain(p).catch(() => 'error') ?? 'error')
@@ -280,7 +281,7 @@ export function OverlapPairs({ report, explain, resolve, cap = OVERLAP_PAGE, sho
       <colgroup><col /><col />{showCross && <col style={{ width: 120 }} />}<col style={{ width: 92 }} /><col style={{ width: 90 }} /></colgroup>
       <thead><tr><th>{labels[0]}</th><th>{labels[1]}</th>{showCross && <th>Scope</th>}<th>Similarity</th><th /></tr></thead>
       <tbody>{shown.flatMap((p, i) => {
-        const k = [p.a.id, p.a.view ?? '', p.b.id, p.b.view ?? ''].join('|')
+        const k = pairKey(p)
         const side = (s: any) => (
           <span className="tool-ref">
             <span className="tool-name" title={`${s.product_key}/${s.name}`}>
