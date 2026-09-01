@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # how many similarity computations may run concurrently (CPU-bound)
     score_concurrency: int = 1
 
+    # report build: cross-encode at most this many candidate pairs per scan
+    # (highest-cosine first); anything beyond is dropped, never served with a
+    # retrieval-only score
+    rerank_cap: int = 500
+
     # pagination contract: list endpoints default to page_default rows and
     # refuse more than page_max; totals travel in the X-Total-Count header
     page_default: int = 100
@@ -59,5 +64,6 @@ PREVIEW_CACHE_CAP = _s.preview_cache_cap
 RESOLVE_CACHE_CAP = _s.resolve_cache_cap
 REPORT_CACHE_CAP = _s.report_cache_cap
 SCORE_CONCURRENCY = _s.score_concurrency
+RERANK_CAP = _s.rerank_cap
 PAGE_DEFAULT = _s.page_default
 PAGE_MAX = _s.page_max

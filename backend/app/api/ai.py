@@ -13,7 +13,7 @@ from ..db import get_session
 from ..deps import require_member
 from ..models import Entity
 from ..services import audit, embedder
-from ..similarity import apply_rerank, embed_text_of, explain_pair, name_similarity, rank
+from ..similarity import apply_rerank, embed_text_of, explain_pair, name_similarity, rank, retrieve_floor
 from .entities import _candidates
 
 router = APIRouter(prefix="/v1/products/{product_key}", tags=["ai"])
@@ -196,6 +196,15 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
         # top match; the full net is reserved for suggestion validation
         top_k = int(tune["candidate_top_k"]) if body.suggestions else 3
         matches = rank(vec, text, cands, top_k=top_k, exclude_id=exclude)
+        # recall backstop: rescore everything the registry report would sweep
+        # at this threshold, not just the RRF top-k — otherwise a LOW threshold
+        # can flag a pair in the report that the editor then calls clean
+        seen_ids = {m["id"] for m in matches}
+        for extra in retrieve_floor(vec, cands, max(0.05, threshold * 0.6),
+                                    exclude_id=exclude, cap=max(top_k * 3, 30)):
+            if extra["id"] not in seen_ids:
+                matches.append(extra)
+                seen_ids.add(extra["id"])
         rr = reranker()
         neural = not isinstance(rr, NoopReranker)
 

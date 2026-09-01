@@ -76,6 +76,31 @@ def rank(query_vec: List[float], query_text: str,
     } for i in top]
 
 
+def retrieve_floor(query_vec: List[float], candidates: List[dict], floor: float,
+                   exclude_id: Optional[str] = None, cap: int = 50) -> List[dict]:
+    """Every candidate whose cosine clears the floor, best first — the recall
+    backstop for the editor preview. RRF top-k optimizes precision and can
+    drop a pair the registry report would still flag (the report sweeps ALL
+    pairs above threshold*0.6); this guarantees the preview rescores at least
+    that same population."""
+    cands = [c for c in candidates if c["id"] != exclude_id and c.get("vec")]
+    if not cands:
+        return []
+    mat = np.asarray([c["vec"] for c in cands], dtype=float)
+    cos = mat @ np.asarray(query_vec, dtype=float)
+    out = []
+    for i in np.argsort(-cos)[:cap]:
+        if float(cos[i]) < floor:
+            break
+        out.append({
+            "id": cands[i]["id"], "product_id": cands[i]["product_id"],
+            "product_key": cands[i].get("product_key", ""), "type": cands[i]["type"],
+            "name": cands[i]["name"],
+            "score": round(max(0.0, float(cos[i])), 4), "lexical": 0.0,
+        })
+    return out
+
+
 def duplicate_pairs(candidates: List[dict], threshold: float) -> List[dict]:
     """All pairs above cosine threshold — the duplicates/overlap report.
     One matrix multiply: O(n^2) values but vectorised; fine for registry scale."""
@@ -476,21 +501,26 @@ def apply_rerank(query_payload: dict, ranked: List[dict],
     return sorted(ranked, key=lambda m: -m["score"])
 
 
-def rerank_pairs(pairs: List[dict], payload_of: Dict[str, dict], cap: int = 100) -> List[dict]:
-    """Duplicates report: rescore the top pairs pairwise. Pairs beyond `cap`
-    keep their cosine score (logged via method field)."""
+def rerank_pairs(pairs: List[dict], payload_of: Dict[str, dict],
+                 cap: int = config.RERANK_CAP) -> List[dict]:
+    """Duplicates report: rescore candidate pairs with the cross-encoder,
+    highest-cosine first. Pairs beyond `cap` are DROPPED, never served — a
+    retrieval cosine is not on the same scale as the blended score, and mixing
+    the two inflates rows the editor then rightly contradicts. Raise
+    REGISTRY_RERANK_CAP if a huge registry ever hits the cap."""
     rr = reranker()
     if isinstance(rr, NoopReranker):
         for p in pairs:
             p["method"] = "cosine"
         return pairs
-    for p in pairs[:cap]:
+    ordered = sorted(pairs, key=lambda p: -p["score"])
+    out = []
+    for p in ordered[:cap]:
         bd = blend_breakdown(rr, payload_of.get(p["a"]["id"]) or {},
                              payload_of.get(p["b"]["id"]) or {})
         p["cosine"] = p["score"]
         p["score"] = bd["overall"]
         p["breakdown"] = bd
         p["method"] = "reranked"
-    for p in pairs[cap:]:
-        p["method"] = "cosine"
-    return sorted(pairs, key=lambda p: -p["score"])
+        out.append(p)
+    return sorted(out, key=lambda p: -p["score"])

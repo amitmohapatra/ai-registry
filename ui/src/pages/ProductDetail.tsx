@@ -18,9 +18,10 @@ export default function ProductDetail({ me }: { me: User | null }) {
     api.product(productKey).then(setProduct)
       .catch(e => setLoadErr(e?.status ?? 500))
   }, [productKey])
+  const [scanBump, setScanBump] = useState(0)     // ++ after a threshold change
   useEffect(() => {          // light background scan drives the overlap status dots
     setDups(null); api.duplicates(productKey, 'all').then(setDups).catch(() => {})
-  }, [productKey])
+  }, [productKey, scanBump])
   const overlapIds = useMemo(() =>
     new Set((dups?.pairs ?? []).flatMap((p: any) => [p.a.id, p.b.id])), [dups])
   if (loadErr) return (
@@ -72,7 +73,7 @@ export default function ProductDetail({ me }: { me: User | null }) {
         </>}
         {manageTab === 'settings' && <>
           <Settings productKey={productKey} me={me} canEdit={canEdit} />
-          <SimilaritySettings productKey={productKey} canEdit={canEdit} isSuper={me?.is_super_admin ?? false} />
+          <SimilaritySettings productKey={productKey} canEdit={canEdit} isSuper={me?.is_super_admin ?? false} onChanged={() => setScanBump(b => b + 1)} />
         </>}
       </>}
     </>
@@ -117,9 +118,10 @@ function Entities({ productKey, type, canEdit, overlapIds }: { productKey: strin
         <tbody>{items.map(e => (
           <tr key={e.id}>
             <td>
-              {type === 'tool' && overlapIds != null && (overlapIds.has(e.id)
+              {type === 'tool' && (overlapIds != null ? (overlapIds.has(e.id)
                 ? <span className="dot red" title="Overlaps with another tool — see the Overlaps tab" />
-                : <span className="dot green" title="No overlaps above the threshold" />)}
+                : <span className="dot green" title="No overlaps above the threshold" />)
+                : <span className="dot scan" title="Overlap scan running — dots appear when it finishes" />)}
               {type === 'tool'
                 ? <Link to={`/p/${productKey}/tools/${e.id}`}><b className="score">{e.name}</b></Link>
                 : <b className="score">{e.name}</b>}
@@ -462,8 +464,8 @@ function AudienceAccess({ productKey, canEdit, refresh = 0 }:
   )
 }
 
-function SimilaritySettings({ productKey, canEdit, isSuper }:
-  { productKey: string; canEdit: boolean; isSuper: boolean }) {
+function SimilaritySettings({ productKey, canEdit, isSuper, onChanged }:
+  { productKey: string; canEdit: boolean; isSuper: boolean; onChanged?: () => void }) {
   const [pct, setPct] = useState(50)
   const [def_, setDef] = useState(50)
   const [overridden, setOverridden] = useState(false)
@@ -488,12 +490,12 @@ function SimilaritySettings({ productKey, canEdit, isSuper }:
           await api.settingsSet(productKey, { similarity_threshold: pct / 100,
             scope: applyGlobal ? 'global' : 'product' })
           toast(applyGlobal ? `Registry default set to ${pct}%` : `This product now flags at ${pct}%`)
-          load()
+          load(); onChanged?.()
         }}>Save</button>}
         {canEdit && overridden && <button className="small" onClick={async () => {
           await api.settingsSet(productKey, { similarity_threshold: def_ / 100, reset: true })
           toast(`Back on the registry default (${def_}%)`)
-          load()
+          load(); onChanged?.()
         }}>Reset to registry default</button>}
       </div>
       {isSuper && (

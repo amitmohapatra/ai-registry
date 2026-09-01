@@ -486,3 +486,5 @@ label .req { color: var(--danger); font-weight: 700; }
   background: var(--warn-bg); color: var(--warn); }
 .sim-badge.high { background: var(--danger-bg); color: var(--danger); }
 .modal select { width: 100%; }
+.dot.scan { background: #c4c7cc; animation: scanpulse 1.2s ease-in-out infinite; }
+@keyframes scanpulse { 50% { opacity: .35; } }
