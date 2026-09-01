@@ -13,6 +13,8 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
   const [key, setKey] = useState(''); const [name, setName] = useState('')
   const [err, setErr] = useState('')
   const [overlaps, setOverlaps] = useState<{ threshold: number; pairs: any[]; audience_keys?: string[] } | null>(null)
+  const [prodFilter, setProdFilter] = useState('')      // '' = all products
+  const [scopeFilter, setScopeFilter] = useState('all') // all | cross | product
   useEffect(() => { setOverlaps(null); api.duplicatesAll().then(setOverlaps).catch(() => {}) }, [])
   const load = () => api.products().then(setProducts)
   useEffect(() => { load() }, [])
@@ -104,26 +106,50 @@ export default function Products({ me, onCreated }: { me: User | null; onCreated
         </div>
       )}
 
-      {tab === 'overlaps' && (
+      {tab === 'overlaps' && (() => {
+        const filtered = overlaps && {
+          ...overlaps,
+          pairs: overlaps.pairs
+            .filter(p => !prodFilter
+              || p.a.product_key === prodFilter || p.b.product_key === prodFilter)
+            .filter(p => scopeFilter === 'all'
+              || (scopeFilter === 'cross' ? p.cross_product : !p.cross_product)),
+        }
+        return (
         <div className="card">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
             <h2 style={{ margin: 0 }}>
               {overlaps && (overlaps.pairs.length
                 ? <span className="dot red" /> : <span className="dot green" />)}
               Overlapping tools across all products
             </h2>
-            {overlaps && <span className="muted">
-              {overlaps.pairs.length === 0 ? `none at ≥ ${Math.round(overlaps.threshold * 100)}%`
-                : `each pair is flagged at its stricter owner's threshold (default ${Math.round(overlaps.threshold * 100)}%) — internal-text rows are tagged`}</span>}
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+              {overlaps && <span className="muted" style={{ marginRight: 6 }}>
+                {overlaps.pairs.length === 0 ? `none flagged`
+                  : `flagged at each pair's stricter owner's threshold (default ${Math.round(overlaps.threshold * 100)}%)`}</span>}
+              <select style={{ width: 160 }} value={prodFilter}
+                title="Only pairs involving this product"
+                onChange={e => setProdFilter(e.target.value)}>
+                <option value="">All products</option>
+                {products.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+              </select>
+              <select style={{ width: 150 }} value={scopeFilter}
+                onChange={e => setScopeFilter(e.target.value)}>
+                <option value="all">All</option>
+                <option value="cross">Cross-product</option>
+                <option value="product">Within product</option>
+              </select>
+            </span>
           </div>
           {overlaps === null ? <p className="muted">Analyzing all pairs…</p>
-            : <OverlapPairs report={overlaps}
+            : <OverlapPairs report={filtered}
                 explain={p => api.explainPair(p.a.product_key, p.a.id, p.b.id,
                   viewAud(p.a.view), viewAud(p.b.view))}
             resolve={p => api.resolvePair(p.a.product_key, p.a.id, p.b.id,
                   viewAud(p.a.view), viewAud(p.b.view))} />}
         </div>
-      )}
+        )
+      })()}
     </>
   )
 }
