@@ -617,27 +617,34 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 <span className="muted" style={{ fontWeight: 400 }}> — meaning unchanged, verified against every product</span>
                 {checking && <span className="rescore"><span className="spin" /> re-scoring…</span>}
               </div>
-              {matches.suggestions.packages.map((p: any, i: number) => (
+              {matches.suggestions.packages.map((p: any, i: number) => {
+                // a suggestion whose every field already equals the draft is
+                // APPLIED — show a confirmed state, not a re-apply button
+                const applied = p.name === payload.name
+                  && (!p.title || normEq(payload.title ?? '', p.title))
+                  && normEq(payload.description ?? '', p.description)
+                return (
                 <div key={i}>
-                  <div className="pkg-row">
+                  <div className="pkg-row" style={applied ? { opacity: .8 } : undefined}>
                     <span className="pkg-num">{i + 1}</span>
-                    {p.name !== payload.name
-                      ? <><b className="score">{p.name}</b><span className="muted">·</span></>
-                      : <span className="muted">keep the name —</span>}
-                    {p.title && p.title !== payload.title && (
-                      <><span className="pkg-title">{p.title}</span><span className="muted">·</span></>
-                    )}
+                    <b className="score">{p.name}</b><span className="muted">·</span>
+                    {p.title && <><span className="pkg-title">{p.title}</span><span className="muted">·</span></>}
                     <button className="small" onClick={() => setShowResDesc(v => v === i ? null : i)}>
                       {showResDesc === i ? 'hide description' : 'description'}</button>
                     <span className="sugg-outcome" style={{ marginLeft: 'auto' }}>
-                      <s className="muted">{Math.round(top.score * 100)}%</s>
-                      <span className="sugg-arrow">→</span>
-                      {p.new_overall < th
-                        ? <span className="delta ok">{Math.round(p.new_overall * 100)}% ✓</span>
-                        : <span className="delta part">{Math.round(p.new_overall * 100)}%</span>}
+                      {applied
+                        ? <span className="delta ok">applied — now {Math.round(p.new_overall * 100)}%{p.new_overall < th ? ' ✓' : ''}</span>
+                        : <>
+                            <s className="muted">{Math.round(top.score * 100)}%</s>
+                            <span className="sugg-arrow">→</span>
+                            {p.new_overall < th
+                              ? <span className="delta ok">{Math.round(p.new_overall * 100)}% ✓</span>
+                              : <span className="delta part">{Math.round(p.new_overall * 100)}%</span>}
+                          </>}
                     </span>
-                    <button className="icon-act" disabled={checking}
-                      title={checking ? 'Re-scoring — one moment'
+                    <button className="icon-act" disabled={checking || applied}
+                      title={applied ? 'Already applied — your fields match this suggestion'
+                        : checking ? 'Re-scoring — one moment'
                         : 'Use this suggestion — fills the fields for you (nothing publishes until Save & publish)'}
                       aria-label={`Use suggestion ${i + 1}`}
                       onClick={() => {
@@ -648,7 +655,8 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                   </div>
                   {showResDesc === i && <div className="resolve-desc">{p.description}</div>}
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : null}
         </div>
