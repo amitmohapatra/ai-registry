@@ -638,6 +638,9 @@ function SimilarityWarning({ matches, checking, payload, set, setOverlay, dirty,
                 const applied = p.name === payload.name
                   && (!p.title || normEq(payload.title ?? '', p.title))
                   && normEq(payload.description ?? '', p.description)
+                // stale offer that no longer improves anything (kept across a
+                // cheap re-check after another package was applied) — drop it
+                if (!applied && p.new_overall >= top.score) return null
                 return (
                 <div key={i}>
                   <div className="pkg-row" style={applied ? { opacity: .8 } : undefined}>

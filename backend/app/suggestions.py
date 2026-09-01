@@ -360,11 +360,16 @@ def build_suggestions(draft: dict, other: dict, product_key: str,
                     packages.append({"name": nm, "title": ti, "description": dc,
                                      "new_overall": p})
         packages.sort(key=lambda x: x["new_overall"])
-        seen, uniq = set(), []
+        seen, seen_content, uniq = set(), set(), []
         for p in packages:                      # one package per name; must IMPROVE
-            if p["name"] not in seen and p["new_overall"] < round(current_overall, 2):
+            # two names over the SAME title+description+score are one
+            # recommendation spelled twice (token rotations) — keep the best
+            content = (p["title"], p["description"], round(p["new_overall"], 2))
+            if (p["name"] not in seen and content not in seen_content
+                    and p["new_overall"] < round(current_overall, 2)):
                 uniq.append(p)
                 seen.add(p["name"])
+                seen_content.add(content)
         packages = uniq[:int(t["packages_max"])]
         if not packages and descriptions:       # keep name/title, fix the description
             cur_title = draft.get("title") or humanize(draft.get("name", ""))
