@@ -38,10 +38,13 @@ services:
     environment:
       REGISTRY_DATABASE_URL: postgresql+asyncpg://registry:registry@postgres:5432/registry
       REGISTRY_REDIS_URL: redis://redis:6379/0          # L2 cache + default event bus
-      REGISTRY_JWT_SECRET: change-me-jwt-secret
-      REGISTRY_SECRET_KEY: change-me-32-byte-secret-key!!
-      REGISTRY_BOOTSTRAP_ADMIN_EMAIL: admin@registry.dev
-      REGISTRY_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Taken from .env (see .env.example), with a laptop default so `docker compose up`
+      # still works out of the box. Written in full here, they were placeholder secrets
+      # committed to the repository — which is how a placeholder becomes production.
+      REGISTRY_JWT_SECRET: ${REGISTRY_JWT_SECRET:-change-me-jwt-secret}
+      REGISTRY_SECRET_KEY: ${REGISTRY_SECRET_KEY:-change-me-32-byte-secret-key!!}
+      REGISTRY_BOOTSTRAP_ADMIN_EMAIL: ${REGISTRY_BOOTSTRAP_ADMIN_EMAIL:-admin@registry.dev}
+      REGISTRY_BOOTSTRAP_ADMIN_PASSWORD: ${REGISTRY_BOOTSTRAP_ADMIN_PASSWORD:-admin}
       # optional installation-wide AI gateway (Bifrost); per-product config overrides
       # REGISTRY_BIFROST_URL: http://bifrost:8080/v1
       # REGISTRY_BIFROST_KEY: vk-...
