@@ -73,6 +73,17 @@ AGENT_BASE_SCHEMA = {
     "properties": {
         "name": {"type": "string"},
         "description": {"type": "string", "minLength": 1},
+        # The agent's interface. A2A's card describes transport and media *modes*, never
+        # shapes, so this is the only place a caller can learn what an agent accepts and
+        # returns — which is what a planner needs in order to choose one at all.
+        #
+        # These describe the *varying* part only: input_schema is AgentRequest.input, and
+        # output_schema is AgentResponse.data. The envelope around them (status, claims,
+        # evidence, error) is fixed by the harness contract and identical for every agent;
+        # restating it here would be the contract copied N times, drifting from the day it
+        # next changes.
+        "input_schema": {"type": "object"},
+        "output_schema": {"type": "object"},
         "card": {"type": "object"},          # A2A agent-card style payload
         "annotations": {"type": "object"},
         "audiences": {"type": "object"},
@@ -94,14 +105,19 @@ def validate_base(entity_type: str, payload: dict) -> List[dict]:
         _err("/".join(str(p) for p in e.absolute_path) or "payload", "schema", e.message)
         for e in jsonschema.Draft202012Validator(schema).iter_errors(payload)
     ]
-    input_schema = payload.get("input_schema")
-    if input_schema is not None:
+    # Both directions get the same treatment. An unvalidated output_schema is accepted in
+    # the UI and only fails much later, as a consumer quietly ignoring the entity — the
+    # failure mode this whole function exists to prevent.
+    for field in ("input_schema", "output_schema"):
+        declared = payload.get(field)
+        if declared is None:
+            continue
         try:
-            jsonschema.Draft202012Validator.check_schema(input_schema)
+            jsonschema.Draft202012Validator.check_schema(declared)
         except jsonschema.SchemaError as e:
-            errors.append(_err("input_schema", "invalid_json_schema", e.message))
+            errors.append(_err(field, "invalid_json_schema", e.message))
         else:
-            errors.extend(_check_required_refs(input_schema, "input_schema"))
+            errors.extend(_check_required_refs(declared, field))
     return errors
 
 
@@ -178,6 +194,11 @@ def resolve(entity_type: str, payload: dict, audience: str) -> Optional[dict]:
         schema.pop("required", None)
     schema.setdefault("additionalProperties", False)
     spec["input_schema"] = schema
+    # Carried through untouched. Audience overrides reshape *inputs* — they add, modify and
+    # pin parameters a caller may send. What an entity returns is not the caller's to alter,
+    # so there is no overlay for it and no merge to do.
+    if payload.get("output_schema") is not None:
+        spec["output_schema"] = copy.deepcopy(payload["output_schema"])
     return {"enabled": True, "spec": spec, "pins": pins}
 
 

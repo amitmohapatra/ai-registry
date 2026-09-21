@@ -23,3 +23,10 @@ ui/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# never publish credentials
+.env
+*.env
+!.env.example
+secrets*
+*.pem
