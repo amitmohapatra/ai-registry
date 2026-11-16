@@ -293,10 +293,10 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
 
     # all DB reads are done — release the pooled connection BEFORE the heavy
     # CPU work, or queued previews starve every other endpoint of connections
-    await db.close()
     try:
-        # inside the try: a failed embed must settle and drop the in-flight future,
-        # or every identical preview after it waits on that future forever
+        # inside the try: a failed close or embed must settle and drop the in-flight
+        # future, or every identical preview after it waits on that future forever
+        await db.close()
         vec = (await embedder().embed([text]))[0]
         async with _score_gate:                    # one heavy job at a time
             matches, top_explain, flagged_audience, suggestions = \
@@ -311,6 +311,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     except BaseException as exc:
         if not fut.done():
             fut.set_exception(exc)
+            fut.exception()  # said to identical previews waiting on it, if any; never unread
         raise
     finally:
         _preview_inflight.pop(cache_key, None)
