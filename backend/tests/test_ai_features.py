@@ -1,9 +1,7 @@
 """Similar-preview, explain breakdown, similarity settings, and score sanity."""
-import copy
-
 import pytest
 
-from .conftest import TOOL, login, make_product
+from .conftest import login, make_product
 
 
 async def seed(client, su):

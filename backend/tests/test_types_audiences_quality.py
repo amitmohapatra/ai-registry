@@ -303,11 +303,11 @@ def test_score_uniformity_row_breakdown_explain():
     assert abs(sum(bd["contributions"].values()) - bd["overall"]) < 0.002  # adds up even when capped
     assert bd["capped_by"] == "different-capability"
     import app.similarity as sim
-    orig = sim.reranker
+    orig = sim._reranker
     sim._reranker = rr                       # force explain down the same path
     try:
         ex = explain_pair(a, b)
         assert ex["overall"] == bd["overall"]
         assert ex["contributions"] == bd["contributions"]
     finally:
-        sim._reranker = None
+        sim._reranker = orig
