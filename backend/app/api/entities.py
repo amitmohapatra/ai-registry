@@ -10,6 +10,7 @@ from .. import config
 from ..db import get_session
 from ..deps import current_user, require_member, require_product_admin
 from ..models import Entity, EntityVersion
+from ..overlay import with_text_overrides
 from ..schemas import DryRunOut, EntityIn, EntityOut, EntityPatch, SimilarOut, VersionOut
 from ..services import audience_keys, audit, delete_entity, write_entity
 from ..similarity import (apply_rerank, duplicate_pairs, embed_text_of,
@@ -331,8 +332,7 @@ async def registry_overlap_report(db: AsyncSession) -> dict:
                 if not (o.get("description") or o.get("title")):
                     continue
                 overridden.append(aud)
-                vp = {**c["payload"]}
-                vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
+                vp = with_text_overrides(c["payload"], o)
                 variants.append({**c, "id": f"{c['id']}::{aud}", "payload": vp,
                                  "text": embed_text_of(vp), "vec": None, "view": aud})
             inheriting = [k for k in auds_of.get(c["product_id"], []) if k not in overridden]

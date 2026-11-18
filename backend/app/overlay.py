@@ -250,6 +250,21 @@ def resolve_all(entity_type: str, payload: dict, audience_keys: List[str]) -> Di
     return {a: resolve(entity_type, payload, a) for a in audience_keys}
 
 
+def with_text_overrides(payload: dict, overrides: dict) -> dict:
+    """``payload`` as an audience reads it for similarity: its title and description
+    replaced by the audience's overrides, where it has them."""
+    return {**payload, **{k: overrides[k] for k in ("description", "title") if overrides.get(k)}}
+
+
+def text_view(payload: dict, audience: str) -> dict:
+    """``payload`` as ``audience`` reads it (:func:`with_text_overrides`); the base when no
+    audience is named or it overrides nothing."""
+    overrides = ((payload.get("audiences") or {}).get(audience) or {}).get("overrides") or {}
+    if not audience or not overrides:
+        return payload
+    return with_text_overrides(payload, overrides)
+
+
 def validate_entity(entity_type: str, payload: dict, audience_keys: List[str]) -> List[dict]:
     """Full pipeline: base shape -> overlay shapes -> semantic checks per audience."""
     errors = validate_base(entity_type, payload)

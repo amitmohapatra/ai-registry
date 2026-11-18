@@ -12,6 +12,7 @@ from .. import config
 from ..db import get_session
 from ..deps import require_member
 from ..models import Entity
+from ..overlay import text_view, with_text_overrides
 from ..services import audit, embedder
 from ..similarity import apply_rerank, embed_text_of, explain_pair, name_similarity, rank, retrieve_floor
 from .entities import _candidates
@@ -173,8 +174,6 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     fut = asyncio.get_running_loop().create_future()
     _preview_inflight[cache_key] = fut
 
-    vec = (await embedder().embed([text]))[0]
-
     def _views_of(p: dict):
         """Every published view of a payload: base + each audience override."""
         views = [("base", p)]
@@ -183,9 +182,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
             if (ov or {}).get("enabled") is False:
                 continue
             if o.get("description") or o.get("title"):
-                vp = {**p}
-                vp.update({k: o[k] for k in ("description", "title") if o.get(k)})
-                views.append((aud, vp))
+                views.append((aud, with_text_overrides(p, o)))
         return views
 
     def _score():
@@ -296,8 +293,11 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
 
     # all DB reads are done — release the pooled connection BEFORE the heavy
     # CPU work, or queued previews starve every other endpoint of connections
-    await db.close()
     try:
+        # inside the try: a failed close or embed must settle and drop the in-flight
+        # future, or every identical preview after it waits on that future forever
+        await db.close()
+        vec = (await embedder().embed([text]))[0]
         async with _score_gate:                    # one heavy job at a time
             matches, top_explain, flagged_audience, suggestions = \
                 await asyncio.to_thread(_score)
@@ -311,6 +311,7 @@ async def similar_preview(body: DraftIn, ctx: tuple = Depends(require_member),
     except BaseException as exc:
         if not fut.done():
             fut.set_exception(exc)
+            fut.exception()  # said to identical previews waiting on it, if any; never unread
         raise
     finally:
         _preview_inflight.pop(cache_key, None)
@@ -345,15 +346,7 @@ async def resolve_pair(entity_id: str, other_id: str,
     by_id = {c["id"]: c["payload"] for c in cands}
     taken = {c["name"] for c in cands}
 
-    def view(payload: dict, aud: str) -> dict:
-        ov = ((payload.get("audiences") or {}).get(aud) or {}).get("overrides") or {}
-        if not aud or not ov:
-            return payload
-        out = {**payload}
-        out.update({k: ov[k] for k in ("description", "title") if ov.get(k)})
-        return out
-
-    pa, pb = view(a.payload, aud_a), view(b.payload, aud_b)
+    pa, pb = text_view(a.payload, aud_a), text_view(b.payload, aud_b)
     key = hashlib.sha256(repr((a.id, a.version, b.id, b.version, aud_a, aud_b,
                                threshold, sorted(tune.items()))).encode()).hexdigest()
     hit = _resolve_cache.get(key)
@@ -420,14 +413,6 @@ async def explain(entity_id: str, other_id: str, ctx: tuple = Depends(require_me
     if not a or a.is_deleted or not b or b.is_deleted:
         raise HTTPException(404, "Entity not found")
 
-    def view(payload: dict, aud: str) -> dict:
-        ov = ((payload.get("audiences") or {}).get(aud) or {}).get("overrides") or {}
-        if not aud or not ov:
-            return payload
-        out = {**payload}
-        out.update({k: ov[k] for k in ("description", "title") if ov.get(k)})
-        return out
-
-    pa, pb = view(a.payload, aud_a), view(b.payload, aud_b)
+    pa, pb = text_view(a.payload, aud_a), text_view(b.payload, aud_b)
     return {"a": {"id": a.id, "name": a.name}, "b": {"id": b.id, "name": b.name},
             **explain_pair(pa, pb)}

@@ -1,9 +1,7 @@
 """Similar-preview, explain breakdown, similarity settings, and score sanity."""
-import copy
-
 import pytest
 
-from .conftest import TOOL, login, make_product
+from .conftest import login, make_product
 
 
 async def seed(client, su):
@@ -259,3 +257,43 @@ def test_description_options_verified_to_improve():
             assert abs(actual - opt["new_overall"]) < 0.01       # prediction == reality
     finally:
         sim._reranker = None
+
+
+@pytest.mark.parametrize("failing", ["close", "embed"])
+async def test_a_failed_preview_strands_no_identical_preview(client, monkeypatch, failing):
+    """A preview whose connection close or embed fails ends with that error, and the next
+    identical preview is computed rather than left waiting on the failed one's result."""
+    import asyncio
+    import sys
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app import services
+
+    su = await login(client)
+    await seed(client, su)
+    failures: list[Exception] = []
+    real_close, real_embedder = AsyncSession.close, services.embedder
+
+    async def close(self):  # the preview's own close of its connection, not the request's
+        if failing == "close" and failures and sys._getframe(1).f_code.co_name == "similar_preview":
+            raise failures.pop()
+        await real_close(self)
+
+    class Embedder:
+        async def embed(self, texts):
+            if failing == "embed" and failures:
+                raise failures.pop()
+            return await real_embedder().embed(texts)
+
+    monkeypatch.setattr(AsyncSession, "close", close)
+    from app.api import ai
+
+    monkeypatch.setattr(ai, "embedder", Embedder)
+    draft = {"type": "tool", "payload": {"name": "stranded", "description": "Find an invoice."}}
+    path = "/v1/products/billing/entities/similar-preview"
+    failures.append(RuntimeError(f"{failing} failed"))  # this preview's own, once
+    with pytest.raises(RuntimeError, match=f"{failing} failed"):
+        await client.post(path, json=draft, headers=su)
+    again = await asyncio.wait_for(client.post(path, json=draft, headers=su), 10)
+    assert again.status_code == 200 and "matches" in again.json()

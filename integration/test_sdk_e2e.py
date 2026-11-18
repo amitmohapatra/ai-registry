@@ -4,7 +4,7 @@ import asyncio
 import copy
 import json
 
-from yourco_mcp import AuthUser, NoAuth, StaticTokenProvider
+from yourco_mcp import NoAuth, StaticTokenProvider
 from conftest import SECURE_TOOL, TOOL, rpc
 
 INTERNAL = StaticTokenProvider({
